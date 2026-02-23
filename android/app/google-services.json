@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "658543947824",
+    "project_id": "chai-money",
+    "storage_bucket": "chai-money.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:658543947824:android:5d5d163ccbb5e22bd4bdf5",
+        "android_client_info": {
+          "package_name": "com.chai.money"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB27VNL21RtAFo473U6yI_2OLGbgeHqIFs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:658543947824:android:47b0fff025845958d4bdf5",
+        "android_client_info": {
+          "package_name": "com.yondone.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB27VNL21RtAFo473U6yI_2OLGbgeHqIFs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

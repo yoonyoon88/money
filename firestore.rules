@@ -1,0 +1,99 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function: 현재 사용자가 인증되었는지 확인
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function: 현재 사용자가 부모인지 확인
+    function isParent(userId) {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(userId)).data.role == 'PARENT';
+    }
+    
+    // Helper function: 현재 사용자가 아이인지 확인
+    function isChild(userId) {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(userId)).data.role == 'CHILD';
+    }
+
+    // Users 컬렉션
+    match /users/{userId} {
+      // 읽기: 자신의 정보만 읽을 수 있음
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      
+      // 생성: 인증된 사용자만 자신의 문서 생성 가능
+      allow create: if isAuthenticated() && 
+                       request.auth.uid == userId &&
+                       request.resource.data.keys().hasAll(['name', 'role', 'totalPoint']) &&
+                       request.resource.data.totalPoint == 0; // 초기 포인트는 0이어야 함
+      
+      // 업데이트: 자신의 정보만 업데이트 가능
+      // totalPoint 업데이트 규칙:
+      // 1. 자신의 문서이고 totalPoint가 변경되지 않는 경우
+      // 2. 부모가 아이의 포인트를 증가시키는 경우 (미션 승인 시)
+      allow update: if isAuthenticated() && (
+        // 자신의 문서이고, totalPoint가 변경되지 않는 경우
+        (request.auth.uid == userId && 
+         request.resource.data.totalPoint == resource.data.totalPoint) ||
+        // 부모가 아이의 포인트를 증가시키는 경우 (트랜잭션에서 increment 사용)
+        // increment 연산은 request.resource.data에 실제 증가된 값으로 표시됨
+        (isParent(request.auth.uid) &&
+         isChild(userId) &&
+         request.resource.data.totalPoint > resource.data.totalPoint)
+      );
+      
+      // 삭제: 불가
+      allow delete: if false;
+    }
+
+    // Missions 컬렉션
+    match /missions/{missionId} {
+      // 읽기: 자신과 관련된 미션만 읽을 수 있음
+      // - 아이: 자신의 미션 (childId === userId)
+      // - 부모: 자신이 만든 미션이거나 자녀의 미션 (parentId === userId)
+      allow read: if isAuthenticated() && (
+        resource.data.childId == request.auth.uid ||
+        resource.data.parentId == request.auth.uid
+      );
+      
+      // 생성: 부모만 미션 생성 가능
+      allow create: if isAuthenticated() &&
+                       isParent(request.auth.uid) &&
+                       request.resource.data.parentId == request.auth.uid &&
+                       request.resource.data.status == 'TODO' &&
+                       request.resource.data.keys().hasAll(['title', 'description', 'rewardPoint', 'dueDate', 'status', 'missionType', 'childId', 'parentId', 'createdAt']) &&
+                       !request.resource.data.diff(resource).affectedKeys().hasAny(['submittedAt', 'approvedAt']); // 제출/승인 시간은 생성 시 설정 불가
+      
+      // 업데이트: 역할별로 제한
+      allow update: if isAuthenticated() && (
+        // 아이: 제출만 가능 (status: TODO -> SUBMITTED)
+        (isChild(request.auth.uid) && 
+         resource.data.childId == request.auth.uid &&
+         resource.data.status == 'TODO' &&
+         request.resource.data.status == 'SUBMITTED' &&
+         // 제출 시 변경 가능한 필드: status, submission.memo, submission.submittedAt
+         request.resource.data.diff(resource).affectedKeys().hasOnly(['status', 'submission'])) ||
+        // 부모: 승인만 가능 (status: SUBMITTED -> APPROVED)
+        (isParent(request.auth.uid) && 
+         resource.data.parentId == request.auth.uid &&
+         resource.data.status == 'SUBMITTED' &&
+         request.resource.data.status == 'APPROVED' &&
+         // 승인 시 변경 가능한 필드: status, approvedAt, approvedBy
+         request.resource.data.diff(resource).affectedKeys().hasOnly(['status', 'approvedAt', 'approvedBy'])) ||
+        // 부모: 반려만 가능 (status: SUBMITTED -> REJECTED)
+        (isParent(request.auth.uid) && 
+         resource.data.parentId == request.auth.uid &&
+         resource.data.status == 'SUBMITTED' &&
+         request.resource.data.status == 'REJECTED' &&
+         // 반려 시 변경 가능한 필드: status, rejectedAt
+         request.resource.data.diff(resource).affectedKeys().hasOnly(['status', 'rejectedAt']))
+      );
+      
+      // 삭제: 불가
+      allow delete: if false;
+    }
+  }
+}
+
