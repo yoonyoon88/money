@@ -37,11 +37,11 @@ const FixedHeader: React.FC<FixedHeaderProps> = ({
     <header
       className={`fixed top-0 left-0 right-0 z-50 bg-white border-b border-gray-200 ${className}`}
       style={{
-        height: '60px',
-        paddingTop: 'env(safe-area-inset-top, 0)',
+        paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)',
+        height: '72px',
       }}
     >
-      <div className="h-full flex items-center px-4 pt-3">
+      <div className="h-full flex items-center px-5">
         {/* 왼쪽: 뒤로가기 버튼 */}
         {showBackButton && (
           <button

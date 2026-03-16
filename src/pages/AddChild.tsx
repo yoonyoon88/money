@@ -1,8 +1,13 @@
 import React, { useState, FormEvent, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
+import { getSubscriptionPlan } from '../types';
 import { db } from '../firebase/config';
-import { collection, addDoc, doc, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
+import { getMaxChildren } from '../utils/planLimit';
+import { getVisibleChildrenCount } from '../firebase/users';
+import { hasPremiumAccess } from '../utils/subscription';
+import { collection, addDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
+import { safeUserUpdate } from '../utils/firestoreSafeUpdate';
 import Header from '../components/Header';
 import Character from '../components/Character';
 
@@ -10,10 +15,19 @@ const AddChild: React.FC = () => {
   const { user } = useApp();
   const navigate = useNavigate();
   const [childName, setChildName] = useState('');
-  const [gender, setGender] = useState<'female' | 'male'>('female'); // 기본값: 여자
+  const [gender, setGender] = useState<'female' | 'male'>('female');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showUsageGuide, setShowUsageGuide] = useState(false);
+  const [showLimitModal, setShowLimitModal] = useState(false);
+  const [visibleChildrenCount, setVisibleChildrenCount] = useState<number>(0);
+
+  // Soft Delete 반영: 홈에 보이는 자녀 수만 한도에 사용
+  useEffect(() => {
+    if (user?.role === 'PARENT' && user?.id) {
+      getVisibleChildrenCount(user.id).then(setVisibleChildrenCount);
+    }
+  }, [user?.id, user?.role]);
 
   // 최초 1회만 사용법 안내 팝업 표시
   useEffect(() => {
@@ -40,52 +54,27 @@ const AddChild: React.FC = () => {
     );
   }
 
-  // v1.0: 자녀 수 제한 체크 (이미 1명 있으면 안내 화면 표시)
-  const hasChild = user.childrenIds && user.childrenIds.length >= 1;
-  if (hasChild) {
-    return (
-      <div className="min-h-screen bg-[#FFFEF9]">
-        <Header />
-        <div className="flex items-center justify-center px-5 py-8">
-          <div className="w-full max-w-md">
-            <div className="bg-white rounded-2xl shadow-lg p-8">
-              <div className="text-center">
-                <div className="mb-6 flex justify-center">
-                  <div className="w-24 h-24 rounded-full bg-yellow-100 flex items-center justify-center">
-                    <span className="text-4xl">👨‍👩‍👧</span>
-                  </div>
-                </div>
-                <h2 className="text-2xl font-bold text-gray-800 mb-4">
-                  자녀 추가하기
-                </h2>
-                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
-                  <p className="text-gray-700 text-base leading-relaxed whitespace-pre-line">
-                    현재는 한 명의 자녀만 관리할 수 있어요 🙂{'\n'}
-                    다자녀 관리는{'\n'}
-                    추후 업데이트에서 제공될 예정이에요.
-                  </p>
-                </div>
-                <button
-                  onClick={() => navigate('/parent', { replace: true })}
-                  className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-bold text-lg hover:bg-gray-200 transition-colors"
-                >
-                  돌아가기
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const subscriptionPlan = getSubscriptionPlan(user);
+  const effectivePlan = hasPremiumAccess(subscriptionPlan) ? 'premium' : subscriptionPlan;
+  const maxChildren = getMaxChildren(effectivePlan);
+
+  useEffect(() => {
+    if (visibleChildrenCount >= maxChildren) {
+      setShowLimitModal(true);
+    }
+  }, [visibleChildrenCount, maxChildren]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    // v1.0: 자녀 수 제한 (1명만 가능)
-    if (user.childrenIds && user.childrenIds.length >= 1) {
-      setError('현재는 한 명의 자녀만 관리할 수 있어요 🙂\n다자녀 관리는 추후 업데이트에서 제공될 예정이에요.');
+    const limit = getMaxChildren(effectivePlan);
+    if (visibleChildrenCount >= limit) {
+      setError(
+        hasPremiumAccess(subscriptionPlan)
+          ? '최대 5명까지 관리할 수 있어요.'
+          : '현재는 한 명의 자녀만 관리할 수 있어요 😊'
+      );
       return;
     }
 
@@ -114,7 +103,8 @@ const AddChild: React.FC = () => {
         name: childName.trim(),
         parentId: user.id,
         totalPoint: 0,
-        gender: gender, // 성별 필드 추가
+        gender: gender,
+        isDeleted: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -122,7 +112,7 @@ const AddChild: React.FC = () => {
       const childUid = childDocRef.id;
 
       // 2. 부모의 childrenIds 배열에 자녀 UID 추가
-      await updateDoc(doc(db, 'users', user.id), {
+      await safeUserUpdate(user.id, {
         childrenIds: arrayUnion(childUid),
         updatedAt: serverTimestamp(),
       });
@@ -261,7 +251,7 @@ const AddChild: React.FC = () => {
 
       {/* 사용법 팝업이 표시되는 동안 자녀 추가 폼 숨김 */}
       {!showUsageGuide && (
-        <div className="flex items-center justify-center min-h-screen px-5" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>
+        <div className="flex items-center justify-center min-h-screen px-5">
           <div className="w-full max-w-md">
             <div className="bg-white rounded-2xl shadow-lg p-8">
               {/* 프로필 아이콘 */}
@@ -373,6 +363,38 @@ const AddChild: React.FC = () => {
                 </div>
               </form>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showLimitModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-[85%] max-w-sm rounded-2xl bg-white p-6">
+            <h2 className="mb-2 text-lg font-semibold text-gray-800">
+              자녀 추가 제한에 도달했습니다
+            </h2>
+            <p className="mb-4 text-sm text-gray-600">
+              현재 플랜에서는 최대 {maxChildren}명까지 등록할 수 있어요.
+            </p>
+            {!hasPremiumAccess(subscriptionPlan) && (
+              <button
+                type="button"
+                onClick={() => navigate('/parent/subscription')}
+                className="mb-2 w-full rounded-lg bg-gradient-to-r from-purple-500 to-indigo-500 py-2 text-white transition-colors hover:from-purple-600 hover:to-indigo-600"
+              >
+                프리미엄으로 업그레이드
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setShowLimitModal(false);
+                navigate('/parent');
+              }}
+              className="w-full rounded-lg bg-gray-100 py-2 text-gray-700 transition-colors hover:bg-gray-200"
+            >
+              닫기
+            </button>
           </div>
         </div>
       )}

@@ -5,6 +5,7 @@ import MissionCard from './MissionCard';
 import { getUser, deductChildPoint, savePointUsageRecord } from '../firebase/users';
 import { subscribeWishlist, completeWishItem, WishItem } from '../firebase/wishlist';
 import { db } from '../firebase/config';
+import { createMissionTemplate, fetchMissionTemplates, MissionTemplate, deleteMissionTemplate, deleteMissionTemplateBySource } from '../firebase/missionTemplates';
 import Character from './Character';
 import FixedHeader from './FixedHeader';
 import PageLayout from './PageLayout';
@@ -84,6 +85,11 @@ const ChildManagement: React.FC = () => {
     missionType: 'DAILY' as 'DAILY' | 'WEEKLY',
     description: '',
   });
+  /** 포인트 입력 필드용 (맨 앞 0 제거 표시) */
+  const [pointInputStr, setPointInputStr] = useState<string>('500');
+  // 자주 쓰는 미션 템플릿
+  const [missionTemplates, setMissionTemplates] = useState<MissionTemplate[]>([]);
+  const [showTemplateSheet, setShowTemplateSheet] = useState<boolean>(false);
   const [isRepeatMission, setIsRepeatMission] = useState<boolean>(false); // 반복 미션 여부
   const [selectedDays, setSelectedDays] = useState<Set<number>>(new Set()); // 선택된 요일 (0=일, 1=월, ..., 6=토)
   const [repeatStartDate, setRepeatStartDate] = useState<string>(getTodayDateString()); // 반복 시작일 (기본값: 오늘)
@@ -101,12 +107,33 @@ const ChildManagement: React.FC = () => {
   // 날짜/시간 선택 모달 표시 여부
   const [showDateTimePicker, setShowDateTimePicker] = useState(false);
 
+  // 미션 추가/수정 모달이 열릴 때 포인트 입력 문자열 동기화
+  useEffect(() => {
+    if (showCreateModal || showEditModal) {
+      setPointInputStr(String(newMission.rewardPoint || ''));
+    }
+  }, [showCreateModal, showEditModal]);
+
   // childId가 변경되면 selectedChildId 설정 (미션 구독을 위해)
   useEffect(() => {
     if (childId) {
       setSelectedChildId(childId);
     }
   }, [childId, setSelectedChildId]);
+
+  // 부모용: 자주 쓰는 미션 템플릿 불러오기
+  useEffect(() => {
+    const loadTemplates = async () => {
+      if (!user || user.role !== 'PARENT') return;
+      try {
+        const list = await fetchMissionTemplates(user.id);
+        setMissionTemplates(list);
+      } catch {
+        // 무시 (템플릿은 선택 기능)
+      }
+    };
+    loadTemplates();
+  }, [user]);
 
   // 자녀 정보 가져오기 및 접근 권한 검증
   useEffect(() => {
@@ -455,6 +482,7 @@ const ChildManagement: React.FC = () => {
       missionType: mission.missionType,
       description: mission.description || '',
     });
+    setPointInputStr(String(mission.rewardPoint));
 
     // 날짜/시간 파트 설정
     setDueDateParts({
@@ -471,7 +499,7 @@ const ChildManagement: React.FC = () => {
   };
 
   return (
-    <PageLayout headerHeight={HEADER_HEIGHT} className="pb-8">
+    <PageLayout headerHeight={HEADER_HEIGHT} className="pb-[calc(7rem+env(safe-area-inset-bottom))]">
       {/* 고정 헤더 */}
       <FixedHeader
         title={childName ? `${childName}의 미션 관리` : '미션 관리'}
@@ -490,19 +518,18 @@ const ChildManagement: React.FC = () => {
         }
       />
 
-      {/* 포인트 단독 표시 영역 */}
+      {/* 포인트 단독 표시 영역 - 부모홈과 비슷한 상단 여백 */}
       <div className="px-5 pt-4">
-        <div className="bg-indigo-50 rounded-2xl border border-indigo-100 p-5 shadow-sm">
+        <div className="bg-indigo-50 rounded-2xl border border-indigo-100 p-3.5 shadow-sm">
           <div className="flex items-center gap-3 min-w-0">
             {/* 포인트 숫자 영역 - 한 줄 고정, 숫자 강조 */}
             <div className="flex-1 min-w-0">
-              <div className="text-2xl font-bold text-gray-900 whitespace-nowrap">
+              <div className="text-xl font-bold text-gray-900 whitespace-nowrap">
                 {childCurrentPoint.toLocaleString()}P
               </div>
             </div>
             {/* 버튼 영역: 사용하기 + 내역 - shrink 방지 */}
             <div className="flex items-center gap-2 flex-shrink-0">
-              {/* 사용하기 버튼 (부모 전용) */}
               <button
                 onClick={() => {
                   // 부모만 포인트 사용 팝업 표시
@@ -512,7 +539,7 @@ const ChildManagement: React.FC = () => {
                     // 아이 계정이 잘못 접근한 경우 조용히 무시
                   }
                 }}
-                className="px-4 py-2 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 transition-colors whitespace-nowrap"
+                className="px-3.5 py-1.5 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 transition-colors whitespace-nowrap"
               >
                 사용하기
               </button>
@@ -523,7 +550,7 @@ const ChildManagement: React.FC = () => {
                     navigate(`/points/history?childId=${childId}`);
                   }
                 }}
-                className="px-4 py-2 bg-pink-50 text-pink-600 border border-pink-200 rounded-lg text-sm font-medium hover:bg-pink-100 hover:border-pink-300 transition-colors whitespace-nowrap"
+                className="px-3.5 py-1.5 bg-pink-50 text-pink-600 border border-pink-200 rounded-lg text-sm font-medium hover:bg-pink-100 hover:border-pink-300 transition-colors whitespace-nowrap"
               >
                 내역
               </button>
@@ -533,14 +560,14 @@ const ChildManagement: React.FC = () => {
       </div>
 
       {/* 보조 요약 영역 - 소원, 승인 대기 */}
-      <div className="px-5 pt-3">
-        <div className="bg-white rounded-xl border border-gray-200 p-3">
-          <div className="flex items-center justify-center gap-6">
+      <div className="px-5 pt-2">
+        <div className="bg-white rounded-xl border border-gray-200 p-2.5">
+          <div className="flex items-center justify-center gap-5">
             {/* 소원 개수 - 클릭 가능 (토글) */}
             {wishlist.length > 0 ? (
               <button
                 onClick={() => setShowWishDetail(!showWishDetail)}
-                className="flex items-center gap-2 hover:bg-gray-50 rounded-lg px-3 py-1.5 transition-colors"
+                className="flex items-center gap-2 hover:bg-gray-50 rounded-lg px-2.5 py-1 transition-colors"
               >
                 <span className="text-base">⭐</span>
                 <span className="text-sm text-gray-700">
@@ -570,7 +597,7 @@ const ChildManagement: React.FC = () => {
                     tabElement?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                   }, 100);
                 }}
-                className="flex items-center gap-2 hover:bg-gray-50 rounded-lg px-3 py-1.5 transition-colors"
+                className="flex items-center gap-2 hover:bg-gray-50 rounded-lg px-2.5 py-1 transition-colors"
               >
                 <span className="text-base">⏳</span>
                 <span className="text-sm text-gray-700">
@@ -650,12 +677,12 @@ const ChildManagement: React.FC = () => {
 
 
       {/* 필터 탭 */}
-      <div data-tab-section className="px-5 mt-6">
+      <div data-tab-section className="px-5 mt-3">
         <div className="flex gap-2">
           <button
             onClick={() => setFilter('ALL')}
             className={`
-              flex-1 py-3 px-4 rounded-xl text-base font-medium transition-colors
+              flex-1 py-2.5 px-3 rounded-xl text-sm font-medium transition-colors
               ${filter === 'ALL' 
                 ? 'bg-blue-100 border-2 border-blue-300 text-blue-800' 
                 : 'bg-white border-2 border-gray-200 text-gray-600'}
@@ -666,7 +693,7 @@ const ChildManagement: React.FC = () => {
           <button
             onClick={() => setFilter('PENDING')}
             className={`
-              flex-1 py-3 px-4 rounded-xl text-base font-medium transition-colors
+              flex-1 py-2.5 px-3 rounded-xl text-sm font-medium transition-colors
               ${filter === 'PENDING' 
                 ? 'bg-orange-100 border-2 border-orange-300 text-orange-800' 
                 : 'bg-white border-2 border-gray-200 text-gray-600'}
@@ -677,7 +704,7 @@ const ChildManagement: React.FC = () => {
           <button
             onClick={() => setFilter('APPROVED')}
             className={`
-              flex-1 py-3 px-4 rounded-xl text-base font-medium transition-colors
+              flex-1 py-2.5 px-3 rounded-xl text-sm font-medium transition-colors
               ${filter === 'APPROVED' 
                 ? 'bg-green-100 border-2 border-green-300 text-green-800' 
                 : 'bg-white border-2 border-gray-200 text-gray-600'}
@@ -689,7 +716,7 @@ const ChildManagement: React.FC = () => {
       </div>
 
       {/* Mission List */}
-      <div className="px-5 mt-6">
+      <div className="px-5 mt-4">
         {filteredMissions.length === 0 ? (
           <div className="text-center py-12 text-gray-400">
             <div className="mb-4 flex justify-center">
@@ -717,11 +744,68 @@ const ChildManagement: React.FC = () => {
         ) : (
           filteredMissions
             .map((mission) => (
+              // 미션이 자주 쓰는 미션 템플릿에 포함되어 있는지 여부 판단
+              (() => {
+                const isFavorite = missionTemplates.some((tpl) => {
+                  if (tpl.sourceMissionId && tpl.sourceMissionId === mission.id) {
+                    return true;
+                  }
+                  const tplDesc = tpl.description ?? '';
+                  const missionDesc = mission.description ?? '';
+                  return (
+                    tpl.title === mission.title &&
+                    tpl.rewardPoint === mission.rewardPoint &&
+                    tpl.missionType === mission.missionType &&
+                    tplDesc === missionDesc
+                  );
+                });
+
+                return (
               <MissionCard
                 key={mission.id}
                 mission={mission}
                 onClick={() => handleMissionClick(mission.id)}
                 isParentMode={true}
+                isFavorite={isFavorite}
+                onToggleFavorite={async (missionId) => {
+                  if (!user || user.role !== 'PARENT') return;
+                  try {
+                    const target = missions.find((m) => m.id === missionId);
+                    if (!target) return;
+
+                    const matchedTemplates = missionTemplates.filter((tpl) => {
+                      if (tpl.sourceMissionId && tpl.sourceMissionId === missionId) {
+                        return true;
+                      }
+                      const tplDesc = tpl.description ?? '';
+                      const missionDesc = target.description ?? '';
+                      return (
+                        tpl.title === target.title &&
+                        tpl.rewardPoint === target.rewardPoint &&
+                        tpl.missionType === target.missionType &&
+                        tplDesc === missionDesc
+                      );
+                    });
+
+                    if (isFavorite && matchedTemplates.length > 0) {
+                      // 즐겨찾기 해제: 매칭되는 템플릿 모두 삭제
+                      await Promise.all(matchedTemplates.map((tpl) => deleteMissionTemplate(tpl.id)));
+                    } else {
+                      await createMissionTemplate(user.id, {
+                        title: target.title,
+                        description: target.description ?? '',
+                        rewardPoint: target.rewardPoint,
+                        missionType: target.missionType,
+                        sourceMissionId: target.id,
+                      });
+                    }
+                    const list = await fetchMissionTemplates(user.id);
+                    setMissionTemplates(list);
+                  } catch (error) {
+                    console.error(error);
+                    setToastMessage('자주 쓰는 미션 저장에 실패했어요');
+                  }
+                }}
                 onDelete={(missionId) => {
                   setMissionToDelete(missionId);
                   setShowDeleteModal(true);
@@ -748,18 +832,19 @@ const ChildManagement: React.FC = () => {
                   }
                 }}
               />
+                );
+              })()
             ))
         )}
       </div>
 
-      {/* 하단 CTA 버튼 (탭에 따라 하나만 노출) */}
-      {filter !== 'APPROVED' && (
-        <div className="px-5 mt-6 pb-6">
+      {/* 하단 고정 CTA (스크롤 없이 언제든 추가 가능) */}
+      {(filter === 'ALL' || (filter === 'PENDING' && pendingMissions.length > 0)) && (
+        <div className="fixed bottom-0 left-0 right-0 bg-[#FFFEF9] border-t border-gray-200 px-5 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))] z-10">
           {filter === 'ALL' && (
             <button
               onClick={() => {
                 handleParentAction(() => {
-                  // 모달 열 때 오늘 23:59로 초기화
                   const todayDate = getTodayDateString();
                   const initialDateTime = `${todayDate}T23:59:00`;
                   setDueDateParts({
@@ -779,7 +864,7 @@ const ChildManagement: React.FC = () => {
                   setShowCreateModal(true);
                 });
               }}
-              className="w-full py-4 bg-blue-500 text-white rounded-2xl font-bold text-lg shadow-lg hover:bg-blue-600 transition-colors"
+              className="w-full py-4 bg-blue-500 text-white rounded-2xl font-bold text-lg shadow-lg hover:bg-blue-600 active:bg-blue-700 transition-colors"
             >
               + 미션 추가하기
             </button>
@@ -789,7 +874,7 @@ const ChildManagement: React.FC = () => {
               onClick={() => {
                 handleParentAction(() => {
                   navigate('/approval', { 
-                    state: { childId: childId } 
+                    state: { childId: childId },
                   });
                 });
               }}
@@ -804,9 +889,9 @@ const ChildManagement: React.FC = () => {
           {/* 미션 생성/수정 모달 */}
           {(showCreateModal || showEditModal) && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-5">
-              <div className="bg-white rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-2xl font-bold text-gray-800">
+              <div className="bg-white rounded-2xl p-4 w-full max-w-md max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-xl font-bold text-gray-800">
                     {editingMissionId ? '미션 수정하기' : '미션 추가하기'}
                   </h2>
                   <button
@@ -822,6 +907,7 @@ const ChildManagement: React.FC = () => {
                         missionType: 'DAILY',
                         description: '',
                       });
+                      setPointInputStr('500');
                       setDueDateParts({
                         date: todayDate,
                         hour: '23',
@@ -919,6 +1005,7 @@ const ChildManagement: React.FC = () => {
                     missionType: 'DAILY',
                     description: '',
                   });
+                  setPointInputStr('100');
                   setDueDateParts({
                     date: todayDate,
                     hour: '23',
@@ -933,10 +1020,58 @@ const ChildManagement: React.FC = () => {
                   alert(error instanceof Error ? error.message : (editingMissionId ? '미션 수정에 실패했습니다.' : '미션 생성에 실패했습니다.'));
                 }
               }}
-              className="space-y-4"
+              className="space-y-3"
             >
+              {/* 자주 쓰는 미션에서 불러오기 (미션 생성 시) */}
+              {user?.role === 'PARENT' && !editingMissionId && missionTemplates.length > 0 && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-gray-500">자주 쓰는 미션</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowTemplateSheet(true)}
+                      className="text-xs text-blue-500 hover:text-blue-600 font-medium"
+                    >
+                      템플릿 선택
+                    </button>
+                  </div>
+                  <div className="flex gap-2 overflow-x-auto pb-0.5">
+                    {missionTemplates.slice(0, 2).map((tpl) => (
+                      <button
+                        key={tpl.id}
+                        type="button"
+                        onClick={() => {
+                          const todayDate = getTodayDateString();
+                          const due = new Date(
+                            `${todayDate}T23:59:00`
+                          );
+                          const dueISO = due.toISOString();
+                          setNewMission((prev) => ({
+                            ...prev,
+                            title: tpl.title,
+                            rewardPoint: tpl.rewardPoint,
+                            missionType: tpl.missionType,
+                            description: tpl.description ?? '',
+                            dueDate: dueISO,
+                          }));
+                          setPointInputStr(String(tpl.rewardPoint));
+                          setDueDateParts({
+                            date: todayDate,
+                            hour: '23',
+                            minute: '59',
+                          });
+                        }}
+                        className="flex-shrink-0 px-3 py-2 bg-blue-50 border border-blue-100 rounded-xl text-xs text-blue-700 hover:bg-blue-100 transition-colors"
+                      >
+                        {tpl.title}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   미션 제목 <span className="text-red-500 text-sm">*</span>
                 </label>
                 <input
@@ -944,35 +1079,42 @@ const ChildManagement: React.FC = () => {
                   value={newMission.title}
                   onChange={(e) => setNewMission({ ...newMission, title: e.target.value })}
                   required
-                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-blue-400 text-base"
+                  className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-blue-400 text-sm"
                   placeholder="예: 숙제하기"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   포인트 <span className="text-red-500 text-sm">*</span>
                 </label>
                 <input
-                  type="number"
-                  value={newMission.rewardPoint}
-                  onChange={(e) => setNewMission({ ...newMission, rewardPoint: parseInt(e.target.value) || 0 })}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={pointInputStr}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/\D/g, '');
+                    const normalized = raw === '' ? '' : String(parseInt(raw, 10));
+                    setPointInputStr(normalized);
+                    setNewMission({ ...newMission, rewardPoint: normalized === '' ? 0 : parseInt(normalized, 10) });
+                  }}
                   required
-                  min="1"
-                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-blue-400 text-base"
+                  className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-blue-400 text-sm"
+                  placeholder="예: 100"
                 />
               </div>
 
               {/* 마감일시 입력 영역 - 모든 미션에서 필수 */}
               {/* TODO: 반복 미션 기능은 출시 이후 재도입 예정. 현재는 단일 미션만 지원 */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   마감일시 <span className="text-red-500 text-sm">*</span>
                 </label>
                 <button
                   type="button"
                   onClick={() => setShowDateTimePicker(true)}
-                  className={`w-full min-h-[48px] px-4 py-3 border-2 rounded-xl text-base text-left ${
+                  className={`w-full min-h-[44px] px-3 py-2.5 border-2 rounded-xl text-sm text-left ${
                     dueDateParts.date
                       ? 'border-gray-200 bg-white text-gray-800'
                       : 'border-gray-200 bg-gray-50 text-gray-400'
@@ -993,19 +1135,56 @@ const ChildManagement: React.FC = () => {
               {/* 반복 미션 관련 UI는 전면 비활성화됨 */}
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   설명 (선택사항)
                 </label>
                 <textarea
                   value={newMission.description}
                   onChange={(e) => setNewMission({ ...newMission, description: e.target.value })}
-                  rows={3}
-                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-blue-400 text-base resize-none"
-                  placeholder="미션에 대한 추가 설명을 입력하세요"
+                  rows={2}
+                  className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-blue-400 text-sm resize-none"
+                  placeholder="미션에 대한 추가 설명"
                 />
+                {user?.role === 'PARENT' && (
+                  <div className="flex justify-end mt-2">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!user) return;
+                        if (!newMission.title.trim()) {
+                          alert('미션 제목을 먼저 입력해주세요.');
+                          return;
+                        }
+                        if (newMission.rewardPoint <= 0) {
+                          alert('포인트는 0보다 커야 합니다.');
+                          return;
+                        }
+                        try {
+                          await createMissionTemplate(user.id, {
+                            title: newMission.title.trim(),
+                            description: newMission.description ?? '',
+                            rewardPoint: newMission.rewardPoint,
+                            missionType: newMission.missionType,
+                            sourceMissionId: editingMissionId || undefined,
+                          });
+                          const list = await fetchMissionTemplates(user.id);
+                          setMissionTemplates(list);
+                          setToastMessage('자주 쓰는 미션에 저장했어요');
+                        } catch (error) {
+                          // 에러 메시지는 간단히 처리
+                          setToastMessage('자주 쓰는 미션 저장에 실패했어요');
+                          console.error(error);
+                        }
+                      }}
+                      className="text-xs text-blue-500 hover:text-blue-600 font-medium"
+                    >
+                      현재 내용을 자주 쓰는 미션으로 저장
+                    </button>
+                  </div>
+                )}
               </div>
 
-              <div className="flex gap-3 pt-2">
+              <div className="flex gap-2 pt-1">
                 <button
                   type="button"
                   onClick={() => {
@@ -1020,6 +1199,7 @@ const ChildManagement: React.FC = () => {
                       missionType: 'DAILY',
                       description: '',
                     });
+                    setPointInputStr('100');
                     setDueDateParts({
                       date: todayDate,
                       hour: '23',
@@ -1031,14 +1211,14 @@ const ChildManagement: React.FC = () => {
                     setHasEndDate(false);
                     setRepeatEndDate('');
                   }}
-                  className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
+                  className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors text-sm"
                 >
                   취소
                 </button>
                 <button
                   type="submit"
                   disabled={!newMission.title.trim() || !dueDateParts.date}
-                  className="flex-1 py-3 bg-blue-500 text-white rounded-xl font-bold hover:bg-blue-600 transition-colors disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
+                  className="flex-1 py-2.5 bg-blue-500 text-white rounded-xl font-semibold hover:bg-blue-600 transition-colors disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed text-sm"
                 >
                   {editingMissionId ? '수정하기' : '추가하기'}
                 </button>
@@ -1209,6 +1389,73 @@ const ChildManagement: React.FC = () => {
                   확인
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 자주 쓰는 미션 전체 목록 바텀시트 */}
+      {showTemplateSheet && user?.role === 'PARENT' && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-end justify-center z-50">
+          <div className="bg-white rounded-t-3xl w-full max-w-md shadow-lg">
+            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+              <h2 className="text-base font-semibold text-gray-800">자주 쓰는 미션 선택</h2>
+              <button
+                type="button"
+                onClick={() => setShowTemplateSheet(false)}
+                className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto p-4 space-y-3">
+              {missionTemplates.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-4">
+                  아직 저장된 자주 쓰는 미션이 없어요.
+                </p>
+              ) : (
+                missionTemplates.map((tpl) => (
+                  <button
+                    key={tpl.id}
+                    type="button"
+                    onClick={() => {
+                      const todayDate = getTodayDateString();
+                      const due = new Date(
+                        `${todayDate}T23:59:00`
+                      );
+                      const dueISO = due.toISOString();
+                      setNewMission((prev) => ({
+                        ...prev,
+                        title: tpl.title,
+                        rewardPoint: tpl.rewardPoint,
+                        missionType: tpl.missionType,
+                        description: tpl.description ?? '',
+                        dueDate: dueISO,
+                      }));
+                      setPointInputStr(String(tpl.rewardPoint));
+                      setDueDateParts({
+                        date: todayDate,
+                        hour: '23',
+                        minute: '59',
+                      });
+                      setShowTemplateSheet(false);
+                    }}
+                    className="w-full text-left bg-blue-50 hover:bg-blue-100 border border-blue-100 rounded-2xl px-4 py-3 transition-colors"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="font-semibold text-sm text-gray-800 truncate">{tpl.title}</p>
+                      <span className="text-xs text-blue-600 font-medium">
+                        +{tpl.rewardPoint}P
+                      </span>
+                    </div>
+                    {tpl.description && (
+                      <p className="text-xs text-gray-500 line-clamp-2">{tpl.description}</p>
+                    )}
+                  </button>
+                ))
+              )}
             </div>
           </div>
         </div>

@@ -2,8 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { getUser, updateChildInfo, deleteChild } from '../firebase/users';
-import { db, auth } from '../firebase/config';
-import { signOut } from 'firebase/auth';
+import { db } from '../firebase/config';
 import { collection, query, where, onSnapshot, doc } from 'firebase/firestore';
 import Character from './Character';
 import ChildCard from './ChildCard';
@@ -12,6 +11,10 @@ import RoleSelection from './RoleSelection';
 import PinInput from './PinInput';
 import PageLayout from './PageLayout';
 import { NORMAL_HEADER_HEIGHT } from '../constants/layout';
+import { getMaxChildren } from '../utils/planLimit';
+import { getSubscriptionPlan } from '../types';
+import { hasPremiumAccess, isPromoActive } from '../utils/subscription';
+import { fetchMissionTemplates, deleteMissionTemplate, MissionTemplate } from '../firebase/missionTemplates';
 
 interface ChildInfo {
   uid: string;
@@ -31,17 +34,25 @@ const ParentDashboard: React.FC = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [showRoleSelection, setShowRoleSelection] = useState(false);
   const [showUsageGuide, setShowUsageGuide] = useState(false);
-  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [totalMissionCount, setTotalMissionCount] = useState<number>(0); // 전체 미션 개수
   const [editingChildId, setEditingChildId] = useState<string | null>(null); // 수정 중인 자녀 ID
   const [editingChildName, setEditingChildName] = useState<string>(''); // 수정 중인 자녀 이름
   const [editingChildGender, setEditingChildGender] = useState<'male' | 'female'>('female'); // 수정 중인 자녀 성별
+  const [renameOpen, setRenameOpen] = useState(false); // 이름 변경 모달
+  const [newName, setNewName] = useState(''); // 이름 변경 입력값
+  const [renamingChildId, setRenamingChildId] = useState<string | null>(null); // 이름 변경 중인 자녀 ID
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false); // 삭제 확인 모달
   const [deletingChildId, setDeletingChildId] = useState<string | null>(null); // 삭제할 자녀 ID
   const [showDeletePinInput, setShowDeletePinInput] = useState(false); // 삭제 PIN 입력 모달
   const [isDeleting, setIsDeleting] = useState(false); // 삭제 진행 중
   const [showRoleSwitchGuide, setShowRoleSwitchGuide] = useState(false); // 역할 전환 안내 표시 여부
   const [showRoleSwitchBanner, setShowRoleSwitchBanner] = useState(false); // 역할 전환 완료 배너 표시 여부
+
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+
+  // 자주 쓰는 미션 템플릿 관리
+  const [missionTemplates, setMissionTemplates] = useState<MissionTemplate[]>([]);
+  const [showTemplateSheet, setShowTemplateSheet] = useState(false);
 
   // location.state에서 역할 전환 완료 확인
   useEffect(() => {
@@ -81,29 +92,24 @@ const ParentDashboard: React.FC = () => {
       return;
     }
 
-    // 모든 자녀 정보를 병렬로 조회
+    // 모든 자녀 정보를 병렬로 조회 (isDeleted !== true 인 자녀만 표시)
     Promise.all(
       user.childrenIds.map(async (childId) => {
         try {
-          // childId일 가능성이 있으므로 getUser 호출 (문서가 없으면 조용히 null 반환)
           const childUser = await getUser(childId);
-          if (!childUser) {
-            // childId가 user 문서가 아닐 수 있으므로 조용히 skip
+          if (!childUser || childUser.isDeleted === true) {
             return null;
           }
 
-          // User 타입에 gender 필드가 포함되어 있으므로 직접 사용
-          // gender는 'male' | 'female' | undefined 형태로 항상 존재
           return {
             uid: childId,
             name: childUser.name,
             totalPoint: childUser.totalPoint || 0,
             gender: childUser.gender as 'male' | 'female' | undefined,
-            inProgressCount: 0, // ChildCard에서 실시간으로 업데이트
-            pendingCount: 0, // ChildCard에서 실시간으로 업데이트
+            inProgressCount: 0,
+            pendingCount: 0,
           };
         } catch (error) {
-          // childId일 가능성이 있으므로 조용히 처리
           return null;
         }
       })
@@ -117,6 +123,23 @@ const ParentDashboard: React.FC = () => {
       setLoading(false);
     });
   }, [user?.childrenIds]);
+
+  // 부모용: 자주 쓰는 미션 템플릿 불러오기
+  useEffect(() => {
+    const loadTemplates = async () => {
+      if (!user || user.role !== 'PARENT') {
+        setMissionTemplates([]);
+        return;
+      }
+      try {
+        const list = await fetchMissionTemplates(user.id);
+        setMissionTemplates(list);
+      } catch {
+        setMissionTemplates([]);
+      }
+    };
+    loadTemplates();
+  }, [user]);
 
   // 첫 번째 자녀의 미션 개수 구독 (첫 미션 만들기 카드 표시 여부 결정)
   useEffect(() => {
@@ -187,21 +210,44 @@ const ParentDashboard: React.FC = () => {
     setShowRoleSelection(true);
   };
 
+  const subscriptionPlan = hasPremiumAccess(getSubscriptionPlan(user))
+    ? 'premium'
+    : 'free';
+
+  const maxChildren = getMaxChildren(subscriptionPlan);
+
+  const handleAddChild = () => {
+    const plan = getSubscriptionPlan(user);
+    if (!hasPremiumAccess(plan) && childrenInfo.length >= 1) {
+      alert('무료 플랜은 자녀 1명까지만 등록할 수 있어요.');
+      return;
+    }
+    if (childrenInfo.length >= maxChildren) {
+      setShowUpgradeModal(true);
+      return;
+    }
+    navigate('/add-child');
+  };
+
   // 역할 선택 완료 핸들러
   const handleRoleSelected = () => {
     setShowRoleSelection(false);
   };
 
-  // 로그아웃 핸들러
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      // 로그아웃 성공 시 로그인 화면으로 이동 (AppContext에서 자동 처리됨)
-      navigate('/login', { replace: true });
-    } catch (error) {
-      alert('로그아웃에 실패했습니다.');
+  function renderPlanBadge(plan: 'free' | 'premium') {
+    if (plan === 'premium') {
+      return (
+        <span className="whitespace-nowrap rounded-full bg-yellow-100 px-2 py-1 text-xs font-semibold text-yellow-800">
+          👑 프리미엄
+        </span>
+      );
     }
-  };
+    return (
+      <span className="whitespace-nowrap rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600">
+        무료
+      </span>
+    );
+    }
 
   // 역할 선택 화면 표시
   if (showRoleSelection) {
@@ -215,40 +261,19 @@ const ParentDashboard: React.FC = () => {
   }
 
   return (
-    <PageLayout headerHeight={NORMAL_HEADER_HEIGHT} className="pb-8">
-      {/* 상단 헤더 영역 - 보호자 이름 + 액션 버튼 한 줄 구성 */}
-      <div className="bg-white px-5 pt-4 pb-2">
-        {/* 1️⃣ 보호자 이름 + 액션 버튼 한 줄 구성 */}
-        <div className="flex items-center justify-between gap-3 mb-2">
-          {/* 보호자 이름 - 좌측 정렬, 굵은 텍스트, 가장 먼저 인지되도록 강조 */}
-          <h1 className="text-xl font-bold text-gray-800 flex-shrink-0">
-            {user?.name} 님
-          </h1>
-          
-          {/* 액션 버튼 그룹 - 우측 정렬, 좁은 간격으로 하나의 컨트롤 그룹처럼 (자녀가 있을 때만 표시) */}
-          {user?.childrenIds && user.childrenIds.length > 0 && (
+    <PageLayout headerHeight={0} noSafeArea className="pb-[88px]">
+      {/* 1️⃣ 상단 기본 헤더: px-4 pt-6 pb-4, flex justify-between items-center */}
+      <header className="px-4 pt-6 pb-4">
+        <div className="h-[56px] flex justify-between items-center">
+          <div className="flex items-center gap-2 min-w-0">
+          <span className="text-lg font-semibold text-gray-800 truncate">{user?.name} 님</span>
+          {renderPlanBadge(subscriptionPlan)}
+        </div>
             <div className="flex items-center gap-1.5 flex-shrink-0">
-              {/* 역할 전환 버튼 - Primary 스타일 */}
-              <div className="relative">
-                <button
-                  onClick={handleRoleSwitch}
-                  className={`px-3 py-1.5 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 transition-colors whitespace-nowrap ${
-                    showRoleSwitchGuide ? 'ring-4 ring-green-300 ring-offset-2 animate-pulse' : ''
-                  }`}
-                >
-                  역할 전환
-                </button>
-              
-              {/* 역할 전환 안내 말풍선 (첫 미션 생성 후) */}
               {showRoleSwitchGuide && (
-                <div className="absolute bottom-full right-0 mb-2 z-30">
+            <div className="absolute left-4 right-4 top-[72px] z-30 md:left-auto md:right-20 md:top-16">
                   <div className="bg-white rounded-xl shadow-2xl border-2 border-green-200 p-4 min-w-[240px] max-w-[280px]">
                     <div className="flex items-start gap-3">
-                      <div className="flex-shrink-0">
-                        <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
-                          <span className="text-xl">👧</span>
-                        </div>
-                      </div>
                       <div className="flex-1">
                         <p className="text-sm text-gray-800 leading-relaxed mb-3">
                           아이가 미션을 확인하려면<br />
@@ -272,7 +297,7 @@ const ParentDashboard: React.FC = () => {
                       </div>
                       <button
                         onClick={() => setShowRoleSwitchGuide(false)}
-                        className="flex-shrink-0 p-1 text-gray-400 hover:text-gray-600 transition-colors"
+                    className="flex-shrink-0 p-1 text-gray-400 hover:text-gray-600"
                         aria-label="닫기"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -280,43 +305,34 @@ const ParentDashboard: React.FC = () => {
                         </svg>
                       </button>
                     </div>
-                    {/* 말풍선 꼬리 */}
-                    <div className="absolute bottom-0 right-6 transform translate-y-full">
-                      <div className="w-0 h-0 border-l-8 border-r-8 border-t-8 border-transparent border-t-white"></div>
-                    </div>
                   </div>
                 </div>
               )}
-            </div>
-            
-            {/* 사용법 버튼 - Secondary 스타일 */}
+          <button
+            onClick={handleRoleSwitch}
+            className={`px-3 py-1.5 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 transition-colors whitespace-nowrap ${
+              showRoleSwitchGuide ? 'ring-4 ring-green-300 ring-offset-2 animate-pulse' : ''
+            }`}
+          >
+            역할 전환
+          </button>
+          {user?.childrenIds && user.childrenIds.length > 0 && (
             <button
               onClick={() => setShowUsageGuide(true)}
               className="px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors whitespace-nowrap"
             >
               사용법
             </button>
-            
-            {/* 로그아웃 아이콘 버튼 - 아이콘만 표시, 회색 중립 색상 */}
-            <button
-              onClick={() => setShowLogoutConfirm(true)}
-              className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
-              aria-label="로그아웃"
-              title="로그아웃"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-            </button>
-            </div>
           )}
         </div>
-        
-        {/* 2️⃣ 안내 문구 - 헤더 바로 아래, 작고 연한 색상, 보조 설명 느낌 (자녀가 있을 때만 표시) */}
-        {user?.childrenIds && user.childrenIds.length > 0 && (
-          <p className="text-xs text-gray-400">아이를 선택해 주세요 😊</p>
-        )}
+        </div>
+      </header>
+
+      {isPromoActive() && (
+        <div className="text-xs text-indigo-600 font-medium mb-2">
+          5월까지 무료 체험 중
       </div>
+      )}
 
       {/* 자녀가 없을 때 Empty State - 부모 홈의 기본 상태 */}
       {(!user?.childrenIds || user.childrenIds.length === 0) && !loading && (
@@ -341,46 +357,41 @@ const ParentDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* 자녀가 있을 때만 표시되는 컨텐츠 */}
-      {user?.childrenIds && user.childrenIds.length > 0 && !loading && (
+      {/* 자녀가 있을 때: 아이 선택 영역 */}
+      {user?.childrenIds && user.childrenIds.length > 0 && (
         <>
-          {/* 역할 전환 완료 배너 (아이 카드 영역 위에 인라인 표시) */}
-          {showRoleSwitchBanner && (
-            <div className="px-5 mt-4">
-              <div className="bg-gradient-to-r from-green-50 to-blue-50 border-2 border-green-200 rounded-2xl p-4 shadow-md">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 flex-1">
-                    <div className="flex-shrink-0">
-                      <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
-                        <span className="text-xl">👧</span>
+          {/* 안내 문구: 자녀가 1명 이상일 때만 표시 */}
+          {childrenInfo.length > 0 && (
+            <div className="mt-4 px-4 py-3 rounded-xl bg-indigo-50 text-indigo-700 text-sm flex items-center gap-2">
+              <span>✨</span>
+              <span>아이에게 미션을 주려면 카드를 눌러보세요 😊</span>
                       </div>
-                    </div>
-                    <p className="text-sm font-medium text-gray-800">
-                      아이 화면으로 전환했어요 👧
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setShowRoleSwitchBanner(false)}
-                    className="flex-shrink-0 p-1 text-gray-400 hover:text-gray-600 transition-colors"
-                    aria-label="닫기"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            </div>
           )}
-
-          {/* 자녀 카드 목록 */}
-          <div className="px-5 mt-3">
-            {loading ? (
-              <div className="text-center py-8 text-gray-400">
-                <p className="text-sm">자녀 정보를 불러오는 중...</p>
-              </div>
-            ) : (
+          <div className="px-4 mt-4">
+            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5">
+              {loading ? (
+                <div className="py-8 text-center text-gray-500 text-sm">
+                  자녀 정보를 불러오는 중...
+                    </div>
+              ) : (
               <div className="space-y-4">
+                {/* 자주 쓰는 미션 관리 버튼 */}
+                {user?.role === 'PARENT' && (
+                  <button
+                    type="button"
+                    onClick={() => setShowTemplateSheet(true)}
+                    className="w-full flex items-center justify-between px-4 py-2 rounded-xl bg-amber-50 border border-amber-100 text-xs text-amber-800 hover:bg-amber-100 transition-colors"
+                  >
+                    <span className="flex items-center gap-2">
+                      <span>⭐</span>
+                      <span>자주 쓰는 미션 관리</span>
+                    </span>
+                    <span className="text-[11px] text-amber-600">
+                      {missionTemplates.length}개
+                    </span>
+                  </button>
+                )}
+
                 {childrenInfo.map((child) => (
                   <ChildCard
                     key={child.uid}
@@ -390,22 +401,16 @@ const ParentDashboard: React.FC = () => {
                     gender={child.gender}
                     onInProgressCountChange={handleInProgressCountChange}
                     onPendingCountChange={handlePendingCountChange}
-                    onManageClick={() => {
-                      // 자녀 관리 상세 화면으로 이동
-                      navigate(`/parent/child/${child.uid}`);
-                    }}
-                    onViewChildScreenClick={() => {
-                      // 아이 화면 미리보기 모드로 이동
-                      navigate(`/child/${child.uid}`, {
-                        state: { isPreview: true },
-                      });
-                    }}
+                    onManageClick={() => navigate(`/parent/child/${child.uid}`)}
+                    onViewChildScreenClick={() =>
+                      navigate(`/child/${child.uid}`, { state: { isPreview: true } })
+                    }
                     onEditClick={(childId) => {
-                      const child = childrenInfo.find(c => c.uid === childId);
-                      if (child) {
-                        setEditingChildId(childId);
-                        setEditingChildName(child.name);
-                        setEditingChildGender(child.gender || 'female');
+                      const c = childrenInfo.find((x) => x.uid === childId);
+                      if (c) {
+                        setRenamingChildId(childId);
+                        setNewName(c.name);
+                        setRenameOpen(true);
                       }
                     }}
                     onDeleteClick={(childId) => {
@@ -414,38 +419,20 @@ const ParentDashboard: React.FC = () => {
                     }}
                   />
                 ))}
-              </div>
-            )}
-          </div>
 
-          {/* 다자녀 안내 문구 - 접기 가능한 형태 */}
-          {user.childrenIds.length >= 1 && (
-            <div className="px-5 mt-4">
-              <details className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden">
-                <summary className="px-4 py-2.5 text-xs text-gray-500 cursor-pointer hover:bg-gray-100 transition-colors list-none">
-                  <span className="flex items-center justify-between">
-                    <span className="flex items-center gap-1.5">
-                      <span className="text-gray-400">ⓘ</span>
-                      <span>다자녀 관리 안내</span>
-                    </span>
-                    <svg 
-                      className="w-4 h-4 text-gray-400 transition-transform"
-                      fill="none" 
-                      stroke="currentColor" 
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </span>
-                </summary>
-                <div className="px-4 pb-4 pt-2">
-                  <p className="text-xs text-gray-600 leading-relaxed">
-                    현재는 한 명의 자녀만 관리할 수 있어요. 다자녀 관리는 추후 업데이트에서 제공될 예정이에요.
-                  </p>
-                </div>
-              </details>
+                {childrenInfo.length < maxChildren && (
+                  <button
+                    type="button"
+                    onClick={handleAddChild}
+                    className="w-full py-3 rounded-xl border-2 border-dashed border-indigo-300 flex items-center justify-center gap-2 text-indigo-600 text-sm font-semibold mt-3 transition-colors hover:bg-indigo-50"
+                  >
+                    + 자녀 추가하기
+                  </button>
+                )}
             </div>
           )}
+            </div>
+          </div>
         </>
       )}
 
@@ -456,6 +443,69 @@ const ParentDashboard: React.FC = () => {
           type="success"
           onClose={() => setToastMessage(null)}
         />
+      )}
+
+      {/* 자주 쓰는 미션 관리 바텀시트 */}
+      {showTemplateSheet && user?.role === 'PARENT' && (
+        <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50">
+          <div className="bg-white rounded-t-3xl w-full shadow-2xl">
+            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+              <h2 className="text-base font-semibold text-gray-800">자주 쓰는 미션 관리</h2>
+              <button
+                type="button"
+                onClick={() => setShowTemplateSheet(false)}
+                className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto p-4 space-y-3">
+              {missionTemplates.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-4">
+                  아직 저장된 자주 쓰는 미션이 없어요.
+                </p>
+              ) : (
+                missionTemplates.map((tpl) => (
+                  <div
+                    key={tpl.id}
+                    className="w-full bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3 flex items-center gap-3"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-800 truncate">{tpl.title}</p>
+                      <p className="text-[11px] text-gray-500 mt-0.5">
+                        +{tpl.rewardPoint}P · {tpl.missionType === 'DAILY' ? '하루 미션' : '주간 미션'}
+                      </p>
+                      {tpl.description && (
+                        <p className="text-xs text-gray-600 mt-1 line-clamp-2">{tpl.description}</p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await deleteMissionTemplate(tpl.id);
+                          const list = await fetchMissionTemplates(user.id);
+                          setMissionTemplates(list);
+                        } catch (error) {
+                          console.error(error);
+                          setToastMessage('자주 쓰는 미션 삭제에 실패했어요');
+                        }
+                      }}
+                      className="p-2 rounded-full hover:bg-blue-100 text-gray-400 hover:text-red-500 transition-colors"
+                      aria-label="템플릿 삭제"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* 사용법 안내 모달 */}
@@ -575,40 +625,6 @@ const ParentDashboard: React.FC = () => {
         </>
       )}
 
-      {/* 로그아웃 확인 다이얼로그 */}
-      {showLogoutConfirm && (
-        <>
-          {/* 배경 오버레이 */}
-          <div
-            className="fixed inset-0 bg-black/30 z-40"
-            onClick={() => setShowLogoutConfirm(false)}
-          />
-          {/* 다이얼로그 */}
-          <div className="fixed inset-0 flex items-center justify-center z-50 px-5">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
-              <h3 className="text-lg font-bold text-gray-800 mb-2">로그아웃</h3>
-              <p className="text-sm text-gray-600 mb-6">
-                정말 로그아웃하시겠어요?
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowLogoutConfirm(false)}
-                  className="flex-1 py-2.5 px-4 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200 transition-colors"
-                >
-                  취소
-                </button>
-                <button
-                  onClick={handleLogout}
-                  className="flex-1 py-2.5 px-4 bg-red-500 text-white rounded-xl text-sm font-medium hover:bg-red-600 transition-colors"
-                >
-                  로그아웃
-                </button>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
-
       {/* 자녀 정보 수정 모달 */}
       {editingChildId && (
         <>
@@ -688,7 +704,7 @@ const ParentDashboard: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex gap-3 mt-6">
+              <div className="flex gap-3 mt-4">
                 <button
                   onClick={() => {
                     setEditingChildId(null);
@@ -743,6 +759,69 @@ const ParentDashboard: React.FC = () => {
         </>
       )}
 
+      {/* 자녀 이름 변경 모달 */}
+      {renameOpen && renamingChildId && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/30 z-40"
+            onClick={() => {
+              setRenameOpen(false);
+              setRenamingChildId(null);
+              setNewName('');
+            }}
+          />
+          <div className="fixed inset-0 flex items-center justify-center z-50 px-5">
+            <div
+              className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-lg font-bold text-gray-800 mb-4">이름 변경</h3>
+              <input
+                type="text"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent mb-6"
+                placeholder="자녀 이름"
+              />
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setRenameOpen(false);
+                    setRenamingChildId(null);
+                    setNewName('');
+                  }}
+                  className="flex-1 py-2.5 px-4 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200 transition-colors"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!newName.trim()) return;
+                    try {
+                      await updateChildInfo(renamingChildId, { name: newName.trim() });
+                      setChildrenInfo((prev) =>
+                        prev.map((child) =>
+                          child.uid === renamingChildId ? { ...child, name: newName.trim() } : child
+                        )
+                      );
+                      setRenameOpen(false);
+                      setRenamingChildId(null);
+                      setNewName('');
+                      setToastMessage('이름이 변경되었어요.');
+                    } catch {
+                      setToastMessage('변경에 실패했어요. 다시 시도해주세요.');
+                    }
+                  }}
+                  className="flex-1 py-2.5 px-4 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors"
+                >
+                  저장
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* 자녀 삭제 확인 모달 */}
       {showDeleteConfirm && deletingChildId && (
         <>
@@ -762,8 +841,8 @@ const ParentDashboard: React.FC = () => {
             >
               <h3 className="text-lg font-bold text-gray-800 mb-2">자녀 삭제</h3>
               <p className="text-sm text-gray-600 mb-6">
-                정말 삭제하시겠어요?<br />
-                삭제된 자녀의 모든 미션, 포인트, 기록이 영구적으로 삭제됩니다.
+                자녀를 삭제하면 자녀 정보 및 미션 수행 내용이 더 이상 보이지 않습니다.
+                삭제 후에는 복구할 수 없습니다.
               </p>
               <div className="flex gap-3">
                 <button
@@ -780,7 +859,7 @@ const ParentDashboard: React.FC = () => {
                     setShowDeleteConfirm(false);
                     setShowDeletePinInput(true);
                   }}
-                  className="flex-1 py-2.5 px-4 bg-red-500 text-white rounded-xl text-sm font-medium hover:bg-red-600 transition-colors"
+                  className="flex-1 py-2.5 px-4 bg-white text-red-500 border border-red-200 rounded-xl text-sm font-medium hover:bg-red-50 transition-colors"
                 >
                   삭제
                 </button>
@@ -834,24 +913,18 @@ const ParentDashboard: React.FC = () => {
 
                   setIsDeleting(true);
                   try {
-                    // 삭제 전 자녀 수 확인
-                    const currentChildrenCount = user.childrenIds?.length || 0;
-                    
                     await deleteChild(deletingChildId, user.id);
                     setToastMessage('자녀가 삭제되었어요.');
                     setShowDeletePinInput(false);
                     setDeletingChildId(null);
-                    
-                    // 삭제 후 자녀가 0명이 되면 자녀 추가 화면으로 이동
-                    // Firestore 업데이트가 완료되기 전이므로 현재 자녀 수 - 1로 계산
-                    if (currentChildrenCount <= 1) {
-                      // 자녀가 0명이 됨 (마지막 자녀 삭제)
-                      setTimeout(() => {
-                        navigate('/add-child', { replace: true });
-                      }, 500); // Firestore 업데이트 대기
-                    } else {
-                      // 자녀가 남아있음 (부모 홈 유지, 자동으로 childrenInfo가 업데이트됨)
-                    }
+                    // Soft Delete이므로 목록에서만 제거 (childrenIds는 유지)
+                    setChildrenInfo((prev) => {
+                      const next = prev.filter((c) => c.uid !== deletingChildId);
+                      if (next.length === 0) {
+                        setTimeout(() => navigate('/add-child', { replace: true }), 500);
+                      }
+                      return next;
+                    });
                   } catch (error) {
                     setToastMessage('삭제에 실패했어요. 다시 시도해주세요.');
                   } finally {
@@ -865,6 +938,46 @@ const ParentDashboard: React.FC = () => {
                 title="PIN 입력"
                 description="자녀 삭제를 위해 PIN을 입력해주세요"
               />
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 업그레이드 유도 모달 */}
+      {showUpgradeModal && (
+        <>
+          <div
+            className="fixed inset-0 z-40 flex items-center justify-center bg-black/40"
+            onClick={() => setShowUpgradeModal(false)}
+          />
+          <div className="fixed inset-0 z-50 flex items-center justify-center px-5">
+            <div
+              className="w-80 rounded-2xl bg-white p-6 shadow-lg"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="mb-2 text-lg font-semibold text-gray-800">
+                다자녀 관리는 베이직에서 가능해요 👨‍👩‍👧
+              </h3>
+              <p className="mb-4 text-sm text-gray-600">
+                월 1,900원으로 최대 3명까지 관리할 수 있어요.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowUpgradeModal(false);
+                  navigate('/parent/subscription');
+                }}
+                className="w-full rounded-2xl bg-gradient-to-r from-indigo-500 to-violet-500 py-2.5 text-sm font-medium text-white shadow-md transition-colors hover:from-indigo-600 hover:to-violet-600"
+              >
+                지금 베이직으로 업그레이드
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowUpgradeModal(false)}
+                className="mt-2 w-full text-sm text-gray-500 transition-colors hover:text-gray-700"
+              >
+                닫기
+              </button>
             </div>
           </div>
         </>

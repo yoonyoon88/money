@@ -104,9 +104,9 @@ const RoleSelection: React.FC<RoleSelectionProps> = ({
                 <span>보호자</span>
               </button>
 
-              {/* 아이 버튼 */}
+              {/* 아이 버튼 → 자녀 선택 페이지로 이동 */}
               <button
-                onClick={() => handleRoleSelect('CHILD')}
+                onClick={() => navigate('/select-child')}
                 className="w-full py-5 bg-yellow-500 text-white rounded-2xl font-bold text-xl shadow-lg hover:bg-yellow-600 transition-colors active:scale-98 flex items-center justify-center gap-3"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

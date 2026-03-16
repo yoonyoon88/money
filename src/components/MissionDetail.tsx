@@ -52,7 +52,7 @@ const MissionDetail: React.FC = () => {
   return (
     <PageLayout headerHeight={NORMAL_HEADER_HEIGHT} className="pb-8">
       {/* Header */}
-      <div className="bg-white px-5 pt-4 pb-4 flex items-center gap-4">
+      <header className="bg-white px-5 pt-4 pb-4 flex items-center gap-4">
         <button
           onClick={() => navigate('/')}
           className="w-10 h-10 flex items-center justify-center"
@@ -62,9 +62,9 @@ const MissionDetail: React.FC = () => {
           </svg>
         </button>
         <h1 className="text-xl font-bold text-gray-800">미션 수행하기</h1>
-      </div>
+      </header>
 
-      <div className="px-5 mt-6">
+      <div className="px-5 mt-4">
         {/* Mission Info */}
         <div className="bg-white rounded-2xl p-5 mb-4 shadow-sm">
           <div className="flex items-center gap-2 mb-2">

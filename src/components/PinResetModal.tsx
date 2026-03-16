@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../firebase/config';
 import { useApp } from '../context/AppContext';
+import { reauthenticatePasswordUser } from '../utils/reauthenticatePasswordUser';
 
 interface PinResetModalProps {
   isOpen: boolean;
@@ -58,20 +58,17 @@ const PinResetModal: React.FC<PinResetModalProps> = ({
     setError(null);
     setLoading(true);
 
-    const currentUser = auth.currentUser;
-    const userEmail = currentUser?.email || user?.email;
-
-    if (!currentUser || !userEmail) {
-      setError('로그인 정보를 찾을 수 없습니다.');
-      setLoading(false);
-      return;
-    }
-
     try {
-      // Firebase 재인증
-      const credential = EmailAuthProvider.credential(userEmail, password);
-      await reauthenticateWithCredential(currentUser, credential);
-      
+      // Firebase 재인증 (이메일/비밀번호 계정만 허용)
+      await reauthenticatePasswordUser(password);
+
+      if (import.meta.env.DEV) {
+        console.log('[PIN RESET] 비밀번호 재인증 성공', {
+          uid: auth.currentUser?.uid,
+          email: auth.currentUser?.email,
+        });
+      }
+
       // 인증 성공 시 새 PIN 입력 단계로 이동
       setStep('newPin');
       setPassword('');
@@ -80,7 +77,14 @@ const PinResetModal: React.FC<PinResetModalProps> = ({
         pinInputRefs.current[0]?.focus();
       }, 100);
     } catch (err: any) {
-      setError(err.message || '비밀번호가 올바르지 않습니다.');
+      // reauthenticatePasswordUser 에서 이미 사용자용 메시지를 세팅해줌
+      setError(err?.message || '비밀번호 확인 중 오류가 발생했습니다.');
+      if (import.meta.env.DEV) {
+        console.error('[PIN RESET] 비밀번호 재인증 실패', {
+          uid: auth.currentUser?.uid,
+          email: auth.currentUser?.email,
+        });
+      }
       setLoading(false);
       setPassword('');
     }
@@ -161,9 +165,21 @@ const PinResetModal: React.FC<PinResetModalProps> = ({
         updatedAt: serverTimestamp(),
       });
 
+      if (import.meta.env.DEV) {
+        console.log('[PIN RESET] parentPin 업데이트 성공', {
+          uid: user.id,
+        });
+      }
+
       // 성공 시 콜백 호출
       onSuccess();
     } catch (err: any) {
+      if (import.meta.env.DEV) {
+        console.error('[PIN RESET] parentPin 업데이트 실패', {
+          uid: user.id,
+          message: err?.message,
+        });
+      }
       setError(err.message || 'PIN 재설정에 실패했습니다.');
       setLoading(false);
     }

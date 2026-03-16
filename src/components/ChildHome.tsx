@@ -14,7 +14,6 @@ import { useApp } from '../context/AppContext';
 import { isDebugTimeEnabled, debugLog, debugWarn } from '../utils/debug';
 import { getInterpretedStatus, isParentRequestedRetry, isChildRetrying } from '../utils/missionStatusUtils';
 import PageLayout from './PageLayout';
-import { NORMAL_HEADER_HEIGHT } from '../constants/layout';
 
 // 아이 기준 수행 가능한 미션 상태 목록
 // - TODO: 아직 시작하지 않은 미션
@@ -602,113 +601,78 @@ const ChildHome: React.FC = () => {
   };
 
   return (
-    <PageLayout headerHeight={NORMAL_HEADER_HEIGHT} className="pb-8">
-      {/* 포인트 강조 영역 - 상단 최우선 표시 */}
-      <div className="bg-gradient-to-br from-yellow-400 via-yellow-500 to-yellow-600 px-5 pt-6 pb-6">
-        {/* 상단 버튼 영역 - 미리보기 닫기 / 보호자 버튼 */}
-        <div className="flex items-center justify-end mb-4">
-          {/* 미리보기 모드: 닫기 버튼 */}
+    <PageLayout headerHeight={0} className="pb-24">
+      <main className="flex-1 flex flex-col overflow-y-auto px-5 bg-[#FFF9ED] pb-6">
+      {/* 상단 포인트 카드 - 귀엽지만 고급 */}
+      <div className="relative mx-5 mt-4 rounded-3xl bg-gradient-to-r from-yellow-400 to-orange-500 p-5 shadow-md">
+        {(showParentButton || isPreview) && (
+          <div className="absolute top-4 right-5 flex items-center gap-2">
           {isPreview && (
             <button
               onClick={handleClosePreview}
-              className="flex items-center justify-center w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm transition-colors"
+                className="flex items-center justify-center w-9 h-9 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm transition-colors"
               aria-label="닫기"
             >
-              <svg 
-                className="w-6 h-6 text-white" 
-                fill="none" 
-                stroke="currentColor" 
-                viewBox="0 0 24 24"
-              >
-                <path 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round" 
-                  strokeWidth={2} 
-                  d="M6 18L18 6M6 6l12 12" 
-                />
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
           )}
-          {/* 보호자 버튼 - 우측 상단 (아이 기기로 설정된 경우에만 표시, 미리보기 모드에서는 제외) */}
           {showParentButton && (
             <button
               onClick={handleParentButtonClick}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-white/90 hover:text-white hover:bg-white/20 rounded-lg transition-colors backdrop-blur-sm"
+                className="text-xs text-white/80 hover:text-white transition-colors"
               aria-label="보호자"
             >
-              <svg 
-                className="w-4 h-4" 
-                fill="none" 
-                stroke="currentColor" 
-                viewBox="0 0 24 24"
-              >
-                <path 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round" 
-                  strokeWidth={2} 
-                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" 
-                />
-              </svg>
-              <span className="font-medium">보호자</span>
+                보호자
             </button>
           )}
         </div>
+        )}
         
-        {/* 포인트 표시 - 크게 강조 (클릭 가능) */}
         <button
           onClick={() => {
-            if (childId) {
-              navigate(`/points/history?childId=${childId}`);
-            }
+            if (childId) navigate(`/points/history?childId=${childId}`);
           }}
-          className="flex flex-col items-center justify-center w-full cursor-pointer hover:opacity-90 transition-opacity"
+          className="flex flex-col items-start w-full cursor-pointer hover:opacity-95 transition-opacity active:scale-[0.98] text-left"
         >
-          <div className="flex items-center gap-3 mb-2">
-            <svg className="w-10 h-10 text-yellow-900" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd" />
-            </svg>
-            <div className="relative flex items-baseline gap-2" ref={pointRef}>
-              <span className="text-5xl font-extrabold text-yellow-900 drop-shadow-lg">
+          <div className="relative inline-block">
+            <p className="text-4xl font-extrabold text-white leading-none animate-fadeIn" ref={pointRef}>
                 {displayPoint.toLocaleString()}
-              </span>
-              <span className="text-3xl font-bold text-yellow-800">P</span>
-              {/* 포인트 설명 아이콘 (미리보기 모드에서는 비활성화) */}
-              {!isPreview && (
-                <div
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowPointInfoSheet(true);
-                  }}
-                  className="text-yellow-800/60 hover:text-yellow-800/80 transition-colors cursor-pointer"
-                  aria-label="포인트 설명"
-                >
-                  <span className="text-lg leading-none">ⓘ</span>
-                </div>
-              )}
+              <span className="text-lg ml-1 font-semibold opacity-90">P</span>
+            </p>
               {floatingText && (
                 <span
-                  className={`absolute -top-10 left-1/2 transform -translate-x-1/2 text-2xl font-bold text-green-600 animate-bounce ${
+                className={`absolute left-0 -top-6 text-lg font-bold text-white ${
                     isAnimating ? 'opacity-100' : 'opacity-0'
                   }`}
-                  style={{
-                    animation: 'floatUp 1s ease-out forwards',
-                  }}
+                style={{ animation: 'floatUp 1s ease-out forwards' }}
                 >
                   {floatingText}
                 </span>
               )}
             </div>
-          </div>
-          {/* 포인트 설명 텍스트 (선택사항) */}
-          <p className="text-sm text-yellow-900/80 font-medium">포인트내역</p>
+          {!isPreview && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowPointInfoSheet(true);
+              }}
+              className="text-white/80 hover:text-white transition-colors inline-flex mt-0.5 text-sm"
+              aria-label="포인트 설명"
+            >
+              ⓘ
+            </button>
+          )}
+          <p className="text-sm opacity-90 text-white mt-1">오늘도 미션에 도전해보세요</p>
         </button>
       </div>
 
-      {/* 공유 영역 (한 줄 요약 형태) */}
+      {/* 공유 영역 - Gray 톤 */}
       {shouldShowShareButton && (
-        <div className="px-5 mt-4">
-          <div className="bg-pink-50 rounded-xl border border-pink-200 p-3">
+        <div className="mt-4">
+          <div className="mx-5 bg-white rounded-xl shadow-sm border border-gray-100 p-3">
             <div className="flex items-center justify-between">
               <span className="text-sm text-gray-700">
                 완료한 미션 {todayCompletedInfo.completedCount}개 · +{todayCompletedInfo.earnedPoint}P 획득
@@ -716,10 +680,10 @@ const ChildHome: React.FC = () => {
               {!isPreview && (
                 <button
                   onClick={handleShare}
-                  className="w-8 h-8 rounded-full border-2 border-pink-400 bg-white hover:bg-pink-50 flex items-center justify-center transition-colors flex-shrink-0 ml-3"
+                  className="w-8 h-8 rounded-full border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center transition-colors flex-shrink-0 ml-3"
                   aria-label="공유하기"
                 >
-                  <svg className="w-4 h-4 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
                   </svg>
                 </button>
@@ -729,16 +693,14 @@ const ChildHome: React.FC = () => {
         </div>
       )}
 
-      {/* 공유 후 메시지 */}
+      {/* 공유 후 메시지 - Gray 톤 */}
       {showShareMessage && (
-        <div className="px-5 mt-4">
-          <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-4">
-            <p className="text-sm text-gray-700 mb-3">
-              이 기록을 남긴 방법이 궁금하다면
-            </p>
+        <div className="mt-4">
+          <div className="mx-5 bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+            <p className="text-sm text-gray-700 mb-2">이 기록을 남긴 방법이 궁금하다면</p>
             <button
               onClick={() => setShowAppInfo(true)}
-              className="text-sm font-semibold text-blue-600 hover:text-blue-700 underline"
+              className="text-sm font-semibold text-blue-600 hover:text-blue-700"
             >
               앱 정보 보기
             </button>
@@ -746,18 +708,16 @@ const ChildHome: React.FC = () => {
         </div>
       )}
 
-      {/* 내 소원 보기 영역 (미리보기 모드에서는 비활성화) - 인라인 확장 방식 */}
+      {/* 내 소원 보기 영역 - 가볍게 (보조 기능) */}
       {!isPreview && (
-        <div className="px-5 mt-4">
-          <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-sm overflow-hidden">
-            {/* 소원 보기 버튼 (1줄) */}
+        <div className="mx-5 mt-4 bg-white rounded-xl shadow-sm border border-gray-100 px-4 py-3 transition-all duration-300 overflow-hidden">
             <button
               onClick={() => setShowWishPanel(!showWishPanel)}
-              className="w-full py-3 px-4 hover:bg-gray-50 transition-colors flex items-center justify-between"
+            className="w-full flex items-center justify-between"
             >
               <div className="flex items-center gap-2">
-                <span className="text-xl">🎁</span>
-                <span className="text-base font-medium text-gray-800">내 소원 보기</span>
+              <span className="text-lg">🎁</span>
+              <span className="text-sm font-semibold text-gray-700">내 소원 보기</span>
               </div>
               <svg
                 className={`w-5 h-5 text-gray-400 transition-transform ${showWishPanel ? 'rotate-180' : ''}`}
@@ -769,29 +729,26 @@ const ChildHome: React.FC = () => {
               </svg>
             </button>
 
-            {/* 소원 패널 (인라인 확장) */}
             {showWishPanel && (
-              <div className="border-t border-gray-200">
-                {/* 소원 리스트 */}
-                <div className="px-4 py-3 max-h-64 overflow-y-auto">
+            <div className="border-t border-gray-100 mt-3 pt-3">
+              {/* 소원 리스트 - 회색 배경 제거 */}
+              <div className="max-h-48 overflow-y-auto space-y-1.5">
                   {wishlist.length === 0 ? (
-                    <p className="text-sm text-gray-400 text-center py-4">
-                      소원이 없어요
-                    </p>
+                  <p className="text-sm text-gray-400 py-2">소원이 없어요</p>
                   ) : (
-                    <div className="space-y-2">
-                      {wishlist.map((item) => (
+                  wishlist.map((item) => (
                         <div
                           key={item.id}
-                          className="flex items-center justify-between p-2.5 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                      className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-gray-50/80 transition-colors"
                         >
                           <p className="text-sm text-gray-700 flex-1 truncate pr-2">{item.text}</p>
-                          <div
+                      <button
+                        type="button"
                             onClick={async (e) => {
                               e.stopPropagation();
                               try {
                                 await deleteWishItem(item.id);
-                              } catch (error) {
+                          } catch {
                                 alert('삭제에 실패했어요');
                               }
                             }}
@@ -801,27 +758,18 @@ const ChildHome: React.FC = () => {
                             <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                             </svg>
+                      </button>
                           </div>
-                        </div>
-                      ))}
-                    </div>
+                  ))
                   )}
                 </div>
 
-                {/* 소원 개수 제한 안내 */}
                 {wishlist.length >= 3 && (
-                  <div className="px-4 pb-2">
-                    <div className="p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
-                      <p className="text-xs text-yellow-700 text-center">
-                        소원은 최대 3개까지 작성할 수 있어요
-                      </p>
-                    </div>
-                  </div>
+                <p className="text-xs text-gray-500 mt-2">소원은 최대 3개까지예요</p>
                 )}
 
-                {/* 소원 입력 영역 */}
-                <div className="px-4 pb-4 pt-2 border-t border-gray-100">
-                  <div className="flex gap-2">
+              {/* 입력 영역 */}
+              <div className="mt-3 flex gap-2 items-center">
                     <input
                       ref={wishInputRef}
                       type="text"
@@ -836,7 +784,7 @@ const ChildHome: React.FC = () => {
                               await addWishItem(childId, newWishText);
                               setNewWishText('');
                             }
-                          } catch (error) {
+                      } catch {
                             alert('추가에 실패했어요');
                           } finally {
                             setIsAddingWish(false);
@@ -845,9 +793,10 @@ const ChildHome: React.FC = () => {
                       }}
                       placeholder="소원을 입력하세요"
                       disabled={isAddingWish || wishlist.length >= 3}
-                      className="flex-1 px-3 py-2 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-blue-400 text-sm disabled:bg-gray-50 disabled:cursor-not-allowed"
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 disabled:bg-gray-50 disabled:cursor-not-allowed"
                     />
                     <button
+                  type="button"
                       onClick={async () => {
                         if (!newWishText.trim() || isAddingWish || wishlist.length >= 3) return;
                         setIsAddingWish(true);
@@ -856,111 +805,69 @@ const ChildHome: React.FC = () => {
                             await addWishItem(childId, newWishText);
                             setNewWishText('');
                           }
-                        } catch (error) {
+                    } catch {
                           alert('추가에 실패했어요');
                         } finally {
                           setIsAddingWish(false);
                         }
                       }}
                       disabled={!newWishText.trim() || isAddingWish || wishlist.length >= 3}
-                      className="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed whitespace-nowrap"
+                  className="bg-yellow-400 hover:bg-yellow-500 text-white rounded-lg px-4 py-2 text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
                     >
                       추가
                     </button>
                   </div>
                   
-                  {/* 안내 문구 */}
-                  <p className="text-xs text-gray-400 text-center mt-2 leading-relaxed">
-                    소원은 약속이 아니에요 🙂<br />
-                    부모가 참고해서 미션이나 보상으로 만들어줄 수 있어요.
-                  </p>
-                </div>
+              <p className="text-xs text-gray-400 mt-2">부모가 참고해서 미션으로 만들 수 있어요 🙂</p>
               </div>
             )}
-          </div>
         </div>
       )}
 
       {/* 탭 네비게이션 */}
-      <div className="px-5 mt-6">
-        <div className="flex gap-2 bg-white rounded-2xl p-1 border-2 border-gray-200">
+      <div className="mx-5 mt-4 flex gap-2">
           <button
             onClick={() => setActiveTab('all')}
-            className={`flex-1 py-3 px-4 rounded-xl text-base font-medium transition-colors whitespace-nowrap min-w-0 ${
-              activeTab === 'all'
-                ? 'bg-blue-500 text-white shadow-sm'
-                : 'text-gray-600 hover:bg-gray-50'
+            className={`rounded-full px-4 py-2 text-sm transition duration-200 ease-out hover:shadow-sm ${
+              activeTab === 'all' ? 'bg-blue-500 text-white shadow-md font-semibold' : 'bg-white border border-gray-200 text-gray-600'
             }`}
           >
             모두
           </button>
           <button
             onClick={() => setActiveTab('today')}
-            className={`flex-1 py-3 px-4 rounded-xl text-base font-medium transition-colors whitespace-nowrap min-w-0 ${
-              activeTab === 'today'
-                ? 'bg-blue-500 text-white shadow-sm'
-                : 'text-gray-600 hover:bg-gray-50'
+            className={`rounded-full px-4 py-2 text-sm transition duration-200 ease-out hover:shadow-sm ${
+              activeTab === 'today' ? 'bg-blue-500 text-white shadow-md font-semibold' : 'bg-white border border-gray-200 text-gray-600'
             }`}
           >
             오늘
           </button>
           <button
             onClick={() => setActiveTab('week')}
-            className={`flex-1 py-3 px-4 rounded-xl text-base font-medium transition-colors whitespace-nowrap min-w-0 ${
-              activeTab === 'week'
-                ? 'bg-blue-500 text-white shadow-sm'
-                : 'text-gray-600 hover:bg-gray-50'
+            className={`rounded-full px-4 py-2 text-sm transition duration-200 ease-out hover:shadow-sm ${
+              activeTab === 'week' ? 'bg-blue-500 text-white shadow-md font-semibold' : 'bg-white border border-gray-200 text-gray-600'
             }`}
           >
             이번 주
           </button>
           <button
             onClick={() => setActiveTab('completed')}
-            className={`flex-1 py-3 px-4 rounded-xl text-base font-medium transition-colors whitespace-nowrap min-w-0 ${
-              activeTab === 'completed'
-                ? 'bg-blue-500 text-white shadow-sm'
-                : 'text-gray-600 hover:bg-gray-50'
+            className={`rounded-full px-4 py-2 text-sm transition duration-200 ease-out hover:shadow-sm ${
+              activeTab === 'completed' ? 'bg-blue-500 text-white shadow-md font-semibold' : 'bg-white border border-gray-200 text-gray-600'
             }`}
           >
             완료
           </button>
-        </div>
       </div>
 
       {/* 탭 컨텐츠 */}
-      <div className="px-5 mt-6">
+      <div className="flex-1 flex flex-col mt-4 pb-6">
         {displayMissions.length === 0 ? (
-          <div className="text-center py-12 bg-white rounded-2xl border-2 border-dashed border-gray-200">
-            {/* 성별에 따른 빈 상태 아이콘 */}
-            <div className="w-32 h-32 rounded-2xl overflow-hidden flex items-center justify-center bg-yellow-200 mx-auto mb-4">
-              <img 
-                src={childGender === 'male' ? '/boy.png' : '/girl.png'}
-                alt="빈 상태"
-                className="w-full h-full object-cover rounded-2xl"
-                onError={(e) => {
-                  // 이미지 로드 실패 시 대체 UI
-                  const target = e.target as HTMLImageElement;
-                  target.style.display = 'none';
-                  const parent = target.parentElement;
-                  if (parent) {
-                    parent.innerHTML = `
-                      <div class="w-full h-full flex items-center justify-center bg-yellow-200 rounded-2xl">
-                        <span class="text-4xl">👶</span>
-                      </div>
-                    `;
-                  }
-                }}
-              />
-            </div>
-            <p className="text-gray-400 text-base">
-              {activeTab === 'today' && '오늘은 미션이 없어요 😊'}
-              {activeTab === 'all' && '진행 중인 미션이 없어요'}
-              {activeTab === 'week' && '이번 주 미션이 없어요'}
-              {activeTab === 'completed' && '완료된 미션이 없어요'}
-            </p>
+          <div className="flex-1 flex flex-col items-center justify-center text-gray-400 text-sm">
+            오늘 할 미션이 없어요 💤
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-4 mx-5">
             {displayMissions.map((mission) => (
               <MissionCard
                 key={mission.id}
@@ -1018,6 +925,7 @@ const ChildHome: React.FC = () => {
 
       </div>
 
+      </main>
 
       {/* 포인트 설명 바텀시트 */}
       {showPointInfoSheet && (
@@ -1028,9 +936,9 @@ const ChildHome: React.FC = () => {
             onClick={() => setShowPointInfoSheet(false)}
           />
           {/* 바텀시트 */}
-          <div className="fixed bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl z-50">
+          <div className="fixed bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl z-50 pb-[env(safe-area-inset-bottom)]">
             {/* 헤더 */}
-            <div className="px-5 pt-6 pb-4 border-b border-gray-200 flex items-center justify-between">
+            <div className="px-5 pt-4 pb-4 border-b border-gray-200 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-800">포인트</h3>
               <button
                 onClick={() => setShowPointInfoSheet(false)}

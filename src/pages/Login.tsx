@@ -1,9 +1,7 @@
 import React, { useState, FormEvent, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { signInWithEmailAndPassword, AuthError, sendPasswordResetEmail, onAuthStateChanged } from 'firebase/auth';
-import { auth, db } from '../firebase/config';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import Header from '../components/Header';
+import { auth } from '../firebase/config';
 import { PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '../constants/policyUrls';
 
 const Login: React.FC = () => {
@@ -18,8 +16,9 @@ const Login: React.FC = () => {
   const [resetEmail, setResetEmail] = useState('');
   const [passwordResetLoading, setPasswordResetLoading] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
+  const [showLoginForm, setShowLoginForm] = useState(false);
   
-  // DOM 요소 직접 참조를 위한 ref (모바일 state 비동기 문제 해결)
+  // DOM 요소 직접 참조를 위한 ref
   const emailInputRef = useRef<HTMLInputElement>(null);
   const passwordInputRef = useRef<HTMLInputElement>(null);
 
@@ -158,45 +157,42 @@ const Login: React.FC = () => {
       return;
     }
 
-    // 3. Firestore users 컬렉션에서 이메일 조회
+    // 3. Firebase Auth를 통해 비밀번호 재설정 메일 발송
+    // Firestore 조회 없이 Firebase Auth만 사용 (권한 문제 방지)
     setResetError(null);
     setPasswordResetLoading(true);
 
     try {
-      // Firestore에서 이메일로 사용자 조회
-      const usersQuery = query(
-        collection(db, 'users'),
-        where('email', '==', trimmedEmail)
-      );
-      const querySnapshot = await getDocs(usersQuery);
-
-      // 결과가 0개이면
-      if (querySnapshot.empty) {
-        setResetError('가입된 이메일이 아닙니다. 회원가입을 확인해주세요.');
-        setPasswordResetLoading(false);
-        return;
-      }
-
-      // 결과가 존재하면 sendPasswordResetEmail 호출
+      // Firebase Auth의 sendPasswordResetEmail은 등록된 이메일만 처리
+      // 등록되지 않은 이메일이면 auth/user-not-found 에러 반환
       await sendPasswordResetEmail(auth, trimmedEmail);
       alert('비밀번호 재설정 메일이 발송되었습니다.');
       handleClosePasswordResetModal();
     } catch (err) {
+      console.error('[비밀번호 재설정] 에러 발생:', err);
+      
       const authError = err as AuthError;
+      
       // Firebase auth 에러 처리
-      if (authError.code) {
+      if (authError?.code) {
+        console.error('[비밀번호 재설정] Firebase Auth 에러 코드:', authError.code);
+        
         if (authError.code === 'auth/user-not-found') {
-          setResetError('등록되지 않은 이메일입니다.');
+          setResetError('등록되지 않은 이메일입니다. 회원가입을 확인해주세요.');
         } else if (authError.code === 'auth/invalid-email') {
           setResetError('올바른 이메일 형식이 아닙니다.');
         } else if (authError.code === 'auth/too-many-requests') {
           setResetError('요청이 너무 많습니다. 잠시 후 다시 시도해주세요.');
+        } else if (authError.code === 'auth/network-request-failed') {
+          setResetError('네트워크 오류가 발생했습니다. 인터넷 연결을 확인해주세요.');
         } else {
-          setResetError('비밀번호 재설정 메일 발송에 실패했습니다. 다시 시도해주세요.');
+          setResetError(`비밀번호 재설정 메일 발송에 실패했습니다. (${authError.code})`);
         }
       } else {
-        // Firestore 에러 또는 기타 에러
-        setResetError('오류가 발생했습니다. 다시 시도해주세요.');
+        // 기타 에러
+        console.error('[비밀번호 재설정] 알 수 없는 에러:', err);
+        const errorMessage = err instanceof Error ? err.message : '알 수 없는 오류';
+        setResetError(`오류가 발생했습니다: ${errorMessage}`);
       }
     } finally {
       setPasswordResetLoading(false);
@@ -230,184 +226,164 @@ const Login: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#FFF7D6]">
-      <Header showBackButton={false} />
-      <div className="flex items-center justify-center px-5 py-8">
-        <div className="w-full max-w-md">
-        <div className="bg-white rounded-3xl shadow-xl p-8">
-          {/* 로고 영역 - 앱 아이콘 */}
-          <div className="flex flex-col items-center mb-8">
-            <div className="w-44 h-44 sm:w-48 sm:h-48 rounded-2xl overflow-hidden flex items-center justify-center mb-4">
-              <img 
-                src="/app-icon.png"
-                alt="용돈주세요 앱 아이콘"
-                className="w-full h-full object-cover rounded-2xl"
-                onError={(e) => {
-                  // 이미지 로드 실패 시 대체 UI
-                  const target = e.target as HTMLImageElement;
-                  target.style.display = 'none';
-                  const parent = target.parentElement;
-                  if (parent) {
-                    parent.innerHTML = `
-                      <div class="w-full h-full flex items-center justify-center bg-yellow-200 rounded-2xl">
-                        <span class="text-4xl sm:text-5xl">👶</span>
-                      </div>
-                    `;
-                  }
-                }}
-              />
-            </div>
-            {/* 서비스 설명 */}
-            <p className="text-center text-gray-600 text-base font-medium">
-              아이와 함께 미션으로 용돈을 관리해요
-            </p>
+    <div className="min-h-screen overflow-y-auto max-w-[420px] mx-auto flex flex-col justify-center px-6 bg-[#F6F5F3]">
+      <div className="w-full">
+        {/* 상단 브랜딩 영역 */}
+        <div className="text-center mb-8">
+          <img
+            src="/app-icon.png"
+            alt="용돈주세요 앱"
+            className="w-20 h-20 mx-auto mb-4 rounded-2xl object-cover"
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              target.style.display = 'none';
+              const parent = target.parentElement;
+              if (parent) {
+                parent.innerHTML = `<span class="text-3xl">👶</span>`;
+              }
+            }}
+          />
+          <h1 className="text-xl font-semibold">
+            아이와 함께 성장하는 용돈 관리
+          </h1>
+          <p className="text-sm text-gray-500 mt-2">
+            미션으로 배우고 보상으로 동기부여하세요
+          </p>
+        </div>
+
+        {/* 로그인 폼 영역 */}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label htmlFor="email" className="block text-sm text-gray-600 mb-1.5">
+              이메일
+            </label>
+            <input
+              id="email"
+              ref={emailInputRef}
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onBlur={(e) => {
+                const value = e.target.value.trim();
+                if (value !== email) setEmail(value);
+              }}
+              onKeyDown={(e) => handleKeyDown(e, 'email')}
+              required
+              disabled={loading}
+              className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-purple-400 focus:border-transparent disabled:bg-gray-50 disabled:cursor-not-allowed text-gray-700"
+              placeholder="이메일을 입력하세요"
+            />
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label htmlFor="email" className="block text-sm text-gray-600 mb-1.5">
-                이메일
-              </label>
-              <input
-                id="email"
-                ref={emailInputRef}
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                onBlur={(e) => {
-                  // 모바일에서 입력 완료 시 state 확실히 업데이트
-                  const value = e.target.value.trim();
-                  if (value !== email) {
-                    setEmail(value);
-                  }
-                }}
-                onKeyDown={(e) => handleKeyDown(e, 'email')}
-                required
-                disabled={loading}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-1 focus:ring-green-400 focus:border-green-400 disabled:bg-gray-50 disabled:cursor-not-allowed text-gray-700"
-                placeholder="이메일을 입력하세요"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="password" className="block text-sm text-gray-600 mb-1.5">
-                비밀번호
-              </label>
-              <input
-                id="password"
-                ref={passwordInputRef}
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onBlur={(e) => {
-                  // 모바일에서 입력 완료 시 state 확실히 업데이트
-                  const value = e.target.value.trim();
-                  if (value !== password) {
-                    setPassword(value);
-                  }
-                }}
-                onKeyDown={(e) => handleKeyDown(e, 'password')}
-                required
-                disabled={loading}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-1 focus:ring-green-400 focus:border-green-400 disabled:bg-gray-50 disabled:cursor-not-allowed text-gray-700"
-                placeholder="비밀번호를 입력하세요"
-              />
-            </div>
-
-            {error && (
-              <div className="bg-red-50 border border-red-200 rounded-xl p-3">
-                <p className="text-red-600 text-sm">{error}</p>
-              </div>
-            )}
-
-            {/* 아이디 저장 및 자동 로그인 체크박스 - 한 줄로 배치 */}
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-2 flex-1">
-                <input
-                  id="saveEmail"
-                  type="checkbox"
-                  checked={saveEmail}
-                  onChange={(e) => setSaveEmail(e.target.checked)}
-                  disabled={loading}
-                  className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500 focus:ring-2 disabled:opacity-50"
-                />
-                <label htmlFor="saveEmail" className="text-sm text-gray-600 cursor-pointer select-none">
-                  아이디 저장
-                </label>
-              </div>
-              <div className="flex items-center gap-2 flex-1">
-                <input
-                  id="autoLogin"
-                  type="checkbox"
-                  checked={autoLogin}
-                  onChange={(e) => setAutoLogin(e.target.checked)}
-                  disabled={loading}
-                  className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500 focus:ring-2 disabled:opacity-50"
-                />
-                <label htmlFor="autoLogin" className="text-sm text-gray-600 cursor-pointer select-none">
-                  자동 로그인
-                </label>
-              </div>
-            </div>
-
-            {/* 로그인 버튼 - Primary 강조 */}
-            <button
-              type="submit"
+          <div>
+            <label htmlFor="password" className="block text-sm text-gray-600 mb-1.5">
+              비밀번호
+            </label>
+            <input
+              id="password"
+              ref={passwordInputRef}
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onBlur={(e) => {
+                const value = e.target.value.trim();
+                if (value !== password) setPassword(value);
+              }}
+              onKeyDown={(e) => handleKeyDown(e, 'password')}
+              required
               disabled={loading}
-              className="w-full py-4 bg-green-600 text-white rounded-xl font-bold text-lg shadow-md hover:bg-green-700 active:bg-green-800 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
-            >
-              {loading ? '로그인 중...' : '로그인'}
-            </button>
+              className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-purple-400 focus:border-transparent disabled:bg-gray-50 disabled:cursor-not-allowed text-gray-700"
+              placeholder="비밀번호를 입력하세요"
+            />
+          </div>
 
-            {/* 비밀번호 찾기 버튼 */}
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3">
+              <p className="text-red-600 text-sm">{error}</p>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2 flex-1">
+              <input
+                id="saveEmail"
+                type="checkbox"
+                checked={saveEmail}
+                onChange={(e) => setSaveEmail(e.target.checked)}
+                disabled={loading}
+                className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500 focus:ring-2 disabled:opacity-50"
+              />
+              <label htmlFor="saveEmail" className="text-gray-600 cursor-pointer select-none">
+                아이디 저장
+              </label>
+            </div>
+            <div className="flex items-center gap-2 flex-1">
+              <input
+                id="autoLogin"
+                type="checkbox"
+                checked={autoLogin}
+                onChange={(e) => setAutoLogin(e.target.checked)}
+                disabled={loading}
+                className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500 focus:ring-2 disabled:opacity-50"
+              />
+              <label htmlFor="autoLogin" className="text-gray-600 cursor-pointer select-none">
+                자동 로그인
+              </label>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-3 bg-gray-800 text-white rounded-xl text-sm font-semibold hover:bg-gray-700 active:scale-95 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? '로그인 중...' : '로그인'}
+          </button>
+
+          <button
+            type="button"
+            onClick={handlePasswordResetClick}
+            disabled={loading}
+            className="w-full text-center text-xs text-gray-400 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            비밀번호를 잊으셨나요?
+          </button>
+        </form>
+
+        {/* 하단 회원가입 영역 */}
+        <div className="mt-8 text-center">
+          <p className="text-sm text-gray-400">계정이 없으신가요?</p>
+          <Link
+            to="/onboarding"
+            className="inline-flex items-center justify-center mt-2 h-11 px-6 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-500 text-white text-sm font-medium shadow-md active:scale-95 transition"
+          >
+            무료로 시작하기
+          </Link>
+        </div>
+
+        {/* 약관 링크 */}
+        <div className="mt-6 pt-4 border-t border-gray-200">
+          <div className="flex items-center justify-center gap-3">
             <button
               type="button"
-              onClick={handlePasswordResetClick}
-              disabled={loading}
-              className="w-full text-center mt-3 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-              style={{
-                color: '#4A6CF7',
-                fontSize: '13px',
-                cursor: loading ? 'not-allowed' : 'pointer',
+              onClick={() => {
+                window.open(PRIVACY_POLICY_URL, '_blank', 'noopener,noreferrer');
               }}
+              className="text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2"
             >
-              비밀번호를 잊으셨나요?
+              개인정보처리방침
             </button>
-
-            {/* 회원가입 버튼 - Secondary (outline) */}
-            <Link
-              to="/signup"
-              className="block w-full py-3 border-2 border-gray-300 text-gray-700 rounded-xl font-medium text-base hover:border-gray-400 hover:bg-gray-50 transition-colors text-center"
+            <span className="text-xs text-gray-400">·</span>
+            <button
+              type="button"
+              onClick={() => {
+                window.open(TERMS_OF_SERVICE_URL, '_blank', 'noopener,noreferrer');
+              }}
+              className="text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2"
             >
-              회원가입
-            </Link>
-          </form>
-
-          {/* 최하단 약관 링크 영역 */}
-          <div className="mt-6 pt-4 border-t border-gray-100">
-            <div className="flex items-center justify-center gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  window.open(PRIVACY_POLICY_URL, '_blank', 'noopener,noreferrer');
-                }}
-                className="text-xs text-gray-500 hover:text-gray-700 underline underline-offset-2 transition-colors"
-              >
-                개인정보처리방침
-              </button>
-              <span className="text-xs text-gray-400">·</span>
-              <button
-                type="button"
-                onClick={() => {
-                  window.open(TERMS_OF_SERVICE_URL, '_blank', 'noopener,noreferrer');
-                }}
-                className="text-xs text-gray-500 hover:text-gray-700 underline underline-offset-2 transition-colors"
-              >
-                서비스 이용약관
-              </button>
-            </div>
+              서비스 이용약관
+            </button>
           </div>
-        </div>
         </div>
       </div>
 

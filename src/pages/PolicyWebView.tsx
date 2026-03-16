@@ -1,6 +1,5 @@
 import React from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import Header from '../components/Header';
 
 /**
  * 약관을 표시하는 WebView 화면
@@ -20,10 +19,13 @@ const PolicyWebView: React.FC = () => {
   const title = searchParams.get('title') || '약관';
   const url = searchParams.get('url') || '';
 
+  // Notion 등은 iframe 삽입을 막아서 앱 안에서는 표시되지 않음 → 브라우저에서 보기 안내
+  const isEmbedBlocked = /notion\.(site|so)/i.test(url);
+
   return (
     <div className="min-h-screen bg-[#FFFEF9] flex flex-col">
       {/* Header - 뒤로가기 버튼과 제목 (중앙 정렬) */}
-      <header className="flex items-center justify-center relative px-5 py-4 bg-white border-b border-gray-100">
+      <header className="flex items-center justify-center relative px-5 pt-4 pb-4 bg-white border-b border-gray-100">
         {/* 뒤로가기 버튼 - 왼쪽 */}
         <button
           onClick={() => navigate(-1)}
@@ -52,15 +54,7 @@ const PolicyWebView: React.FC = () => {
       
       {/* WebView 영역 */}
       <div className="flex-1 w-full overflow-hidden">
-        {url ? (
-          <iframe
-            src={url}
-            className="w-full h-full border-0"
-            title={title}
-            sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
-            style={{ minHeight: 'calc(100vh - 60px)' }}
-          />
-        ) : (
+        {!url ? (
           <div className="flex items-center justify-center h-full px-5">
             <div className="text-center">
               <p className="text-gray-500 text-base mb-2">
@@ -71,6 +65,30 @@ const PolicyWebView: React.FC = () => {
               </p>
             </div>
           </div>
+        ) : isEmbedBlocked ? (
+          <div className="flex flex-col items-center justify-center h-full px-5">
+            <p className="text-gray-600 text-base text-center mb-2">
+              이 내용은 앱 안에서 바로 보여줄 수 없어요.
+            </p>
+            <p className="text-gray-500 text-sm text-center mb-6">
+              아래 버튼을 누르면 브라우저에서 열려요.
+            </p>
+            <button
+              type="button"
+              onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}
+              className="px-6 py-3 bg-blue-500 text-white rounded-xl font-medium hover:bg-blue-600 active:bg-blue-700 transition-colors"
+            >
+              브라우저에서 보기
+            </button>
+          </div>
+        ) : (
+          <iframe
+            src={url}
+            className="w-full h-full border-0"
+            title={title}
+            sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+            style={{ minHeight: 'calc(100vh - 60px)' }}
+          />
         )}
       </div>
     </div>

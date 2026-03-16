@@ -1,10 +1,14 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppProvider, useApp } from './context/AppContext';
 import { useBackHandler } from './hooks/useBackHandler';
+import AppLayout from './layouts/AppLayout';
 import Home from './components/Home';
 import ChildHome from './components/ChildHome';
 import ParentDashboard from './components/ParentDashboard';
+import ParentLayout from './components/ParentLayout';
+import ParentReport from './components/ParentReport';
+import ParentSettings from './components/ParentSettings';
 import ChildManagement from './components/ChildManagement';
 import RoleSelection from './components/RoleSelection';
 import ParentRouteGuard from './components/ParentRouteGuard';
@@ -14,11 +18,16 @@ import Approval from './components/Approval';
 import PointHistoryPage from './components/PointHistory';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import OnboardingScreen from './pages/OnboardingScreen';
 import AddChild from './pages/AddChild';
-import SelectChild from './pages/SelectChild';
+import ChildSelectPage from './pages/ChildSelectPage';
 import Settings from './pages/Settings';
 import PolicyWebView from './pages/PolicyWebView';
 import ChildrenManagement from './pages/ChildrenManagement';
+import SubscribePage from './pages/SubscribePage';
+import SupportDeveloperPage from './pages/SupportDeveloperPage';
+import SupportThankYouPage from './pages/SupportThankYouPage';
+import { initBilling } from './services/billingService';
 
 // 역할 선택 화면 가드: 이미 역할이 선택되었으면 적절한 화면으로 리다이렉트
 const RoleSelectionGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -145,7 +154,12 @@ const AuthLoadingScreen: React.FC = () => {
 // App 내부 컴포넌트: 인증 상태 확인 후 라우터 렌더링
 const AppRoutes: React.FC = () => {
   const { loading, isAuthChecked, authLoading } = useApp();
-  
+
+  // Google Play Billing 초기화 (콘솔 로그 없이 조용히 실행)
+  useEffect(() => {
+    initBilling();
+  }, []);
+
   // 안드로이드 뒤로가기 버튼 처리 (앱 전체에서 1회만 등록)
   useBackHandler();
 
@@ -156,7 +170,7 @@ const AppRoutes: React.FC = () => {
   }
 
   return (
-    <>
+    <AppLayout>
       <Routes>
           <Route 
             path="/login" 
@@ -167,6 +181,7 @@ const AppRoutes: React.FC = () => {
             } 
           />
           <Route path="/signup" element={<Signup />} />
+          <Route path="/onboarding" element={<OnboardingScreen />} />
           <Route path="/policy" element={<PolicyWebView />} />
           <Route
             path="/role-select"
@@ -183,11 +198,18 @@ const AppRoutes: React.FC = () => {
             element={
               <ProtectedRoute>
                 <ParentRouteGuard>
-                  <ParentDashboard />
+                  <ParentLayout />
                 </ParentRouteGuard>
               </ProtectedRoute>
             }
-          />
+          >
+            <Route index element={<ParentDashboard />} />
+            <Route path="report" element={<ParentReport />} />
+            <Route path="settings" element={<ParentSettings />} />
+            <Route path="subscription" element={<SubscribePage />} />
+            <Route path="support" element={<SupportDeveloperPage />} />
+            <Route path="support/thanks" element={<SupportThankYouPage />} />
+          </Route>
           <Route
             path="/parent/child/:childId"
             element={
@@ -222,7 +244,7 @@ const AppRoutes: React.FC = () => {
             path="/select-child"
             element={
               <ProtectedRoute>
-                <SelectChild />
+                <ChildSelectPage />
               </ProtectedRoute>
             }
           />
@@ -286,8 +308,18 @@ const AppRoutes: React.FC = () => {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/support-developer"
+            element={
+              <ProtectedRoute>
+                <ParentRouteGuard>
+                  <SupportDeveloperPage />
+                </ParentRouteGuard>
+              </ProtectedRoute>
+            }
+          />
       </Routes>
-    </>
+    </AppLayout>
   );
 };
 

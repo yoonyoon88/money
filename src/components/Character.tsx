@@ -1,7 +1,7 @@
 import React from 'react';
 
 interface CharacterProps {
-  size?: 'small' | 'medium' | 'large' | 'icon';
+  size?: 'small' | 'medium' | 'large' | 'icon' | 'card' | 'cardSmall';
   className?: string;
   showSpeechBubble?: boolean;
   speechText?: string;
@@ -29,7 +29,9 @@ const Character: React.FC<CharacterProps> = ({
     small: 'w-12 h-12',
     medium: 'w-20 h-20',
     large: 'w-32 h-32',
-    icon: 'w-16 h-16', // 앱 아이콘용
+    icon: 'w-16 h-16',
+    card: 'w-[60px] h-[60px]',
+    cardSmall: 'w-14 h-14',
   };
 
   // 성별에 따른 이미지 경로 결정

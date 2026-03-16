@@ -2,8 +2,9 @@ import React, { useState, FormEvent, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { auth, db } from '../firebase/config';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '../constants/policyUrls';
+import { getInitialSubscriptionForNewUser } from '../subscription/core';
 
 const Signup: React.FC = () => {
   const navigate = useNavigate();
@@ -56,18 +57,27 @@ const Signup: React.FC = () => {
 
       // Firestore에 사용자 정보 저장 (부모만 가입 가능)
       if (db) {
-        const userData: any = {
-          name: name.trim() || '부모님', // 입력값이 없으면 기본값 사용
-          role: 'PARENT', // 부모로 고정
-          totalPoint: 0,
-          email: email,
-          childrenIds: [],
-          parentPin: parentPin.join(''),
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        };
+        const userRef = doc(db, 'users', user.uid);
+        const snap = await getDoc(userRef);
 
-        await setDoc(doc(db, 'users', user.uid), userData);
+        // parentPin은 최초 생성시에만 기록하고, 기존 문서는 덮어쓰지 않음
+        if (!snap.exists()) {
+          const userData: any = {
+            uid: user.uid,
+            name: name.trim() || '부모님', // 입력값이 없으면 기본값 사용
+            role: 'PARENT', // 부모로 고정
+            totalPoint: 0,
+            email: email,
+            childrenIds: [],
+            parentPin: parentPin.join(''),
+            // 구독 기본값 (현재는 모두 프리미엄, 추후 이 함수만 수정해서 일반 사용자로 전환)
+            ...getInitialSubscriptionForNewUser(),
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          };
+
+          await setDoc(userRef, userData, { merge: true });
+        }
       }
 
       // 회원가입 성공 시 홈으로 이동 (자녀가 없으면 자녀 추가 안내 화면 표시)
@@ -108,23 +118,15 @@ const Signup: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#FFFEF9] flex items-center justify-center px-5 py-8">
-      <div className="w-full max-w-md">
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-          {/* 타이틀 */}
-          <h1 className="text-2xl font-bold text-gray-800 mb-6">회원가입</h1>
+    <div className="mx-auto min-h-screen bg-white flex flex-col overflow-hidden">
+      <main className="flex-1 overflow-y-auto px-5 pb-20">
+      <h1 className="text-xl font-bold mb-1 text-gray-800">회원가입</h1>
+      <p className="text-xs text-gray-400 mb-4">1분이면 시작할 수 있어요</p>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {/* 기본 정보 영역 */}
-            <div className="space-y-4">
-              <div className="pb-3 border-b border-gray-200">
-                <h2 className="text-base font-semibold text-gray-700">기본 정보</h2>
-              </div>
-
+      <form onSubmit={handleSubmit} className="flex-1 flex flex-col gap-3 min-h-0">
+        <div className="flex flex-col gap-3">
               <div>
-                <label htmlFor="name" className="block text-sm text-gray-600 mb-1.5">
-                  이름
-                </label>
+            <label htmlFor="name" className="block text-xs text-gray-500 mb-1">이름</label>
                 <input
                   id="name"
                   type="text"
@@ -132,15 +134,12 @@ const Signup: React.FC = () => {
                   onChange={(e) => setName(e.target.value)}
                   required
                   disabled={loading}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-1 focus:ring-green-400 focus:border-green-400 disabled:bg-gray-50 disabled:cursor-not-allowed text-gray-700"
+              className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-purple-500 focus:ring-1 focus:ring-purple-100 transition disabled:bg-gray-50 disabled:cursor-not-allowed text-gray-700"
                   placeholder="이름을 입력하세요"
                 />
               </div>
-
               <div>
-                <label htmlFor="email" className="block text-sm text-gray-600 mb-1.5">
-                  이메일
-                </label>
+            <label htmlFor="email" className="block text-xs text-gray-500 mb-1">이메일</label>
                 <input
                   ref={emailInputRef}
                   id="email"
@@ -149,15 +148,12 @@ const Signup: React.FC = () => {
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   disabled={loading}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-1 focus:ring-green-400 focus:border-green-400 disabled:bg-gray-50 disabled:cursor-not-allowed text-gray-700"
+              className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-purple-500 focus:ring-1 focus:ring-purple-100 transition disabled:bg-gray-50 disabled:cursor-not-allowed text-gray-700"
                   placeholder="이메일을 입력하세요"
                 />
               </div>
-
               <div>
-                <label htmlFor="password" className="block text-sm text-gray-600 mb-1.5">
-                  비밀번호
-                </label>
+            <label htmlFor="password" className="block text-xs text-gray-500 mb-1">비밀번호</label>
                 <input
                   id="password"
                   type="password"
@@ -165,16 +161,13 @@ const Signup: React.FC = () => {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   disabled={loading}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-1 focus:ring-green-400 focus:border-green-400 disabled:bg-gray-50 disabled:cursor-not-allowed text-gray-700"
-                  placeholder="비밀번호를 입력하세요 (8자 이상)"
+              className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-purple-500 focus:ring-1 focus:ring-purple-100 transition disabled:bg-gray-50 disabled:cursor-not-allowed text-gray-700"
+              placeholder="8자 이상"
                   minLength={8}
                 />
               </div>
-
               <div>
-                <label htmlFor="confirmPassword" className="block text-sm text-gray-600 mb-1.5">
-                  비밀번호 확인
-                </label>
+            <label htmlFor="confirmPassword" className="block text-xs text-gray-500 mb-1">비밀번호 확인</label>
                 <input
                   id="confirmPassword"
                   type="password"
@@ -182,31 +175,24 @@ const Signup: React.FC = () => {
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   required
                   disabled={loading}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-1 focus:ring-green-400 focus:border-green-400 disabled:bg-gray-50 disabled:cursor-not-allowed text-gray-700"
-                  placeholder="비밀번호를 다시 입력하세요"
+              className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-purple-500 focus:ring-1 focus:ring-purple-100 transition disabled:bg-gray-50 disabled:cursor-not-allowed text-gray-700"
+              placeholder="비밀번호 다시 입력"
                   minLength={8}
                 />
               </div>
             </div>
 
             {error && (
-              <div className="bg-red-50 border border-red-200 rounded-xl p-3">
-                <p className="text-red-600 text-sm whitespace-pre-line">{error}</p>
+          <div className="bg-red-50 border border-red-200 rounded-lg p-2.5">
+            <p className="text-red-600 text-xs whitespace-pre-line">{error}</p>
               </div>
             )}
 
-            {/* 부모 설정 영역 */}
-            <div className="space-y-4 pt-4 border-t border-gray-200">
-              <div className="pb-3">
-                <h2 className="text-base font-semibold text-gray-700">부모 설정</h2>
-              </div>
-
-              {/* 부모 PIN 입력 */}
-              <div>
-                <label htmlFor="parentPin" className="block text-sm text-gray-600 mb-2">
-                  부모 PIN <span className="text-red-500 text-sm">*</span>
+        <div className="mt-1">
+          <label htmlFor="parentPin" className="block text-xs text-gray-500 mt-2 mb-1">
+            부모 PIN <span className="text-red-500">*</span>
                 </label>
-                <div className="flex justify-center gap-3 mb-2">
+          <div className="flex gap-2">
                   {parentPin.map((digit, index) => (
                     <input
                       key={index}
@@ -216,14 +202,10 @@ const Signup: React.FC = () => {
                       value={digit}
                       onChange={(e) => {
                         const value = e.target.value;
-                        // 숫자만 허용
-                        if (value && !/^\d$/.test(value)) {
-                          return;
-                        }
+                  if (value && !/^\d$/.test(value)) return;
                         const newPin = [...parentPin];
                         newPin[index] = value;
                         setParentPin(newPin);
-                        // 다음 입력 필드로 포커스 이동
                         if (value && index < 3) {
                           const nextInput = document.getElementById(`pin-${index + 1}`);
                           nextInput?.focus();
@@ -237,64 +219,51 @@ const Signup: React.FC = () => {
                       }}
                       id={`pin-${index}`}
                       disabled={loading}
-                      className="w-16 h-16 text-center text-2xl font-bold border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-green-400 focus:border-green-400 disabled:bg-gray-50 disabled:cursor-not-allowed"
+                className="w-12 h-12 rounded-lg border border-gray-200 text-center text-base focus:border-purple-500 focus:ring-1 focus:ring-purple-100 transition disabled:bg-gray-50 disabled:cursor-not-allowed"
                       autoComplete="off"
                     />
                   ))}
                 </div>
-                <p className="text-xs text-gray-500 text-center mt-2">
-                  부모 전용 기능 보호를 위한 4자리 비밀번호
-                </p>
-              </div>
+          <p className="text-[10px] text-gray-400 mt-1.5">부모 전용 기능 보호용 4자리</p>
             </div>
 
-            {/* 약관 안내 영역 */}
-            <div className="py-3 space-y-2">
-              <p className="text-xs text-gray-500 text-center leading-relaxed">
-                회원가입 시 개인정보처리방침 및 서비스 이용약관에 동의한 것으로 간주합니다.
-              </p>
-              <div className="flex items-center justify-center gap-4">
+        <div className="mt-1">
+          <p className="text-[10px] text-gray-400 text-center mt-2">
+            회원가입 시{' '}
                 <button
                   type="button"
-                  onClick={() => {
-                    window.open(PRIVACY_POLICY_URL, '_blank', 'noopener,noreferrer');
-                  }}
-                  className="text-xs text-gray-600 hover:text-gray-800 underline underline-offset-2 transition-colors"
+              onClick={() => window.open(PRIVACY_POLICY_URL, '_blank', 'noopener,noreferrer')}
+              className="text-purple-500 underline"
                 >
                   개인정보처리방침
                 </button>
-                <span className="text-xs text-gray-400">·</span>
+            {' · '}
                 <button
                   type="button"
-                  onClick={() => {
-                    window.open(TERMS_OF_SERVICE_URL, '_blank', 'noopener,noreferrer');
-                  }}
-                  className="text-xs text-gray-600 hover:text-gray-800 underline underline-offset-2 transition-colors"
+              onClick={() => window.open(TERMS_OF_SERVICE_URL, '_blank', 'noopener,noreferrer')}
+              className="text-purple-500 underline"
                 >
-                  서비스 이용약관
+              이용약관
                 </button>
-              </div>
+            에 동의합니다.
+          </p>
             </div>
 
+        <div className="mt-auto pt-2">
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-4 bg-green-600 text-white rounded-xl font-bold text-lg shadow-md hover:bg-green-700 active:bg-green-800 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+            className="w-full bg-gradient-to-r from-purple-600 to-indigo-500 text-white rounded-xl py-3.5 font-semibold shadow-md active:scale-95 transition disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
             >
-              {loading ? '가입 중...' : '회원가입'}
+            {loading ? '가입 중...' : '가입하기'}
             </button>
-
-            <div className="text-center mt-4">
-              <p className="text-sm text-gray-600">
+          <p className="text-xs text-center mt-2 text-gray-400">
                 이미 계정이 있으신가요?{' '}
-                <Link to="/login" className="text-green-500 hover:text-green-600 font-medium">
-                  로그인
-                </Link>
+            <Link to="/login" className="text-purple-600 font-medium ml-1">로그인</Link>
               </p>
             </div>
           </form>
-        </div>
-      </div>
+      </main>
     </div>
   );
 };

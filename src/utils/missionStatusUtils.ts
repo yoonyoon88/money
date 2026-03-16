@@ -5,6 +5,14 @@ import { Mission } from '../types';
  * RESUBMITTED 상태이지만 부모가 요청한 것이 아닌 경우 SUBMITTED로 보정
  */
 export const getInterpretedStatus = (mission: Mission): string => {
+  // 아이가 재도전 요청한 경우는 RETRY_REQUESTED 상태 유지
+  if (
+    (mission.status === 'RETRY_REQUESTED' || mission.status === 'REQUEST') &&
+    mission.retryRequestedBy === 'child'
+  ) {
+    return 'RETRY_REQUESTED';
+  }
+  
   // RESUBMITTED 상태이지만 부모가 요청한 것이 아닌 경우 SUBMITTED로 보정
   if (
     (mission.status === 'RESUBMITTED' || 

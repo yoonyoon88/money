@@ -74,7 +74,7 @@ const ChildrenManagement: React.FC = () => {
     <div className="min-h-screen bg-[#FFFEF9]">
       <Header showBackButton={true} onBack={() => navigate('/parent')} />
       
-      <div className="px-5 pt-6 pb-24">
+      <div className="px-5 pb-24">
         {/* 화면 타이틀 */}
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-800">자녀 관리</h1>
@@ -114,8 +114,7 @@ const ChildrenManagement: React.FC = () => {
 
       {/* 하단 고정 버튼 */}
       <div 
-        className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-5 py-4"
-        style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
+        className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-5 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]"
       >
         <button
           onClick={() => navigate('/add-child')}

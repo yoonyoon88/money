@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import MissionCard from './MissionCard';
@@ -12,7 +12,67 @@ import { checkAndUpdateExpiredMissions } from '../firebase/missions';
 import { Mission } from '../types';
 
 const Home: React.FC = () => {
-  const { user, missions, loading, selectedChildId, setSelectedChildId, createMission, retryMission, updateMission, markMissionAsNotCompleted, requestRetryByParent, isParentVerified, setIsParentVerified } = useApp();
+  const { user, missions, loading, selectedChildId, setSelectedChildId, createMission, retryMission, updateMission, markMissionAsNotCompleted, requestRetryByParent, approveRetry, rejectRetry, isParentVerified, setIsParentVerified } = useApp();
+  
+  // 디버그: approveRetry와 rejectRetry가 정의되어 있는지 확인
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      console.log('[Home] approveRetry/rejectRetry 체크', {
+        hasApproveRetry: typeof approveRetry === 'function',
+        hasRejectRetry: typeof rejectRetry === 'function',
+        approveRetryType: typeof approveRetry,
+        rejectRetryType: typeof rejectRetry,
+        approveRetryValue: approveRetry,
+        rejectRetryValue: rejectRetry
+      });
+    }
+  }, [approveRetry, rejectRetry]);
+  
+  // 재도전 승인 핸들러 (항상 함수로 전달)
+  const handleApproveRetry = async (missionId: string) => {
+    if (!approveRetry) {
+      console.error('[Home] approveRetry가 정의되지 않았습니다.');
+      setToastMessage('재도전 승인 기능을 사용할 수 없습니다.');
+      return;
+    }
+    try {
+      await approveRetry(missionId);
+      setToastMessage('재도전 요청을 승인했습니다.');
+    } catch (error) {
+      console.error('[Home] 재도전 승인 실패:', error);
+      setToastMessage('재도전 승인에 실패했어요. 다시 시도해주세요.');
+    }
+  };
+  
+  // 재도전 거절 핸들러 (항상 함수로 전달)
+  const handleRejectRetry = async (missionId: string) => {
+    if (!rejectRetry) {
+      console.error('[Home] rejectRetry가 정의되지 않았습니다.');
+      setToastMessage('재도전 거절 기능을 사용할 수 없습니다.');
+      return;
+    }
+    try {
+      await rejectRetry(missionId);
+      setToastMessage('재도전 요청을 거절했습니다.');
+    } catch (error) {
+      console.error('[Home] 재도전 거절 실패:', error);
+      setToastMessage('재도전 거절에 실패했어요. 다시 시도해주세요.');
+    }
+  };
+  
+  // 디버그: 핸들러 함수 확인
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      console.log('[Home] 핸들러 함수 체크', {
+        handleApproveRetryType: typeof handleApproveRetry,
+        handleRejectRetryType: typeof handleRejectRetry,
+        handleApproveRetryValue: handleApproveRetry,
+        handleRejectRetryValue: handleRejectRetry,
+        approveRetryType: typeof approveRetry,
+        rejectRetryType: typeof rejectRetry,
+      });
+    }
+  }, [handleApproveRetry, handleRejectRetry, approveRetry, rejectRetry]);
   const navigate = useNavigate();
   const [showPinInput, setShowPinInput] = useState(false);
   const [filter, setFilter] = useState<'ALL' | 'PENDING' | 'APPROVED'>('ALL');
@@ -129,9 +189,35 @@ const Home: React.FC = () => {
     // 선택된 자녀의 미션만 필터링
     const childMissions = checkedMissions.filter((m) => m.childId === selectedChildId);
 
-    if (filter === 'ALL') return childMissions;
-    if (filter === 'PENDING') return childMissions.filter((m) => m.status === 'SUBMITTED' || m.status === 'PENDING_REVIEW');
-    if (filter === 'APPROVED') return childMissions.filter((m) => m.status === 'APPROVED' || m.status === 'COMPLETED');
+    if (filter === 'ALL') {
+      // 전체 탭에서는 활성 미션만 표시 (기록용 상태는 제외)
+      return childMissions.filter((m) =>
+        m.status === 'TODO' ||
+        m.status === 'IN_PROGRESS' ||
+        m.status === 'SUBMITTED' ||
+        m.status === 'PENDING_REVIEW' ||
+        m.status === 'EXPIRED' ||
+        m.status === 'REQUEST' ||
+        m.status === 'RETRY_REQUESTED' ||
+        m.status === 'RESUBMITTED'
+      );
+    }
+
+    if (filter === 'PENDING') {
+      // 확인 중 탭: 제출되어 승인 대기 중인 미션만
+      return childMissions.filter((m) => m.status === 'SUBMITTED' || m.status === 'PENDING_REVIEW');
+    }
+
+    if (filter === 'APPROVED') {
+      // 완료 탭: 승인/완료/재도전 승인된 과거 미션들
+      return childMissions.filter((m) =>
+        m.status === 'APPROVED' ||
+        m.status === 'COMPLETED' ||
+        m.status === 'RETRY_APPROVED'
+      );
+    }
+
+    // 기본값: 진행 중 미션만
     return childMissions.filter((m) => m.status === 'TODO' || m.status === 'IN_PROGRESS');
   }, [checkedMissions, filter, user, selectedChildId]);
 
@@ -271,7 +357,7 @@ const Home: React.FC = () => {
               ))
             )}
           </div>
-          <div className="mt-6">
+          <div className="mt-4">
             {/* v1.0: 자녀 수 제한 (1명만 가능) */}
             {user.childrenIds && user.childrenIds.length >= 1 ? (
               <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
@@ -300,13 +386,34 @@ const Home: React.FC = () => {
   }
 
   const handleMissionClick = (missionId: string) => {
-    // 부모는 제출된 미션(DONE_PENDING) 클릭 시 승인 화면으로 이동
+    // 부모는 제출된 미션(SUBMITTED) 또는 재도전 요청된 미션(RETRY_REQUESTED) 클릭 시 승인 화면으로 이동
     // 승인 화면은 부모 기능이므로 Approval 컴포넌트에서 PIN 확인
     // childId를 state로 전달하여 승인 후 해당 자녀 홈으로 돌아올 수 있도록 함
     const mission = checkedMissions.find(m => m.id === missionId);
-    if (mission && (mission.status === 'SUBMITTED' || mission.status === 'PENDING_REVIEW')) {
+    console.log('[Home] handleMissionClick', { 
+      missionId, 
+      mission: mission ? {
+        id: mission.id,
+        status: mission.status,
+        retryRequestedBy: mission.retryRequestedBy,
+        title: mission.title
+      } : null
+    });
+    
+    if (mission && (
+      mission.status === 'SUBMITTED' || 
+      mission.status === 'PENDING_REVIEW' ||
+      (mission.status === 'RETRY_REQUESTED' && mission.retryRequestedBy === 'child') ||
+      (mission.retryRequestedBy === 'child') // 아이가 재도전 요청한 경우 (상태와 무관하게)
+    )) {
+      console.log('[Home] 승인 화면으로 이동');
       navigate('/approval', { 
         state: { childId: selectedChildId } 
+      });
+    } else {
+      console.log('[Home] 조건 불일치 - 이동하지 않음', {
+        status: mission?.status,
+        retryRequestedBy: mission?.retryRequestedBy
       });
     }
   };
@@ -405,7 +512,7 @@ const Home: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#FFFEF9] pb-8">
       {/* Header */}
-      <div className="bg-white px-5 pt-12 pb-6">
+      <div className="bg-white px-5 pb-6">
         {/* 자녀 선택 변경 버튼 */}
         <div className="mb-4 flex items-center justify-between">
           <button
@@ -447,7 +554,7 @@ const Home: React.FC = () => {
 
       {/* 승인 대기 미션 섹션 (강조 표시) */}
       {pendingMissions.length > 0 && (
-        <div className="px-5 mt-6">
+        <div className="px-5 mt-4">
           <div className="bg-orange-50 border-2 border-orange-200 rounded-2xl p-4 mb-4">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-xl font-bold text-orange-800">확인이 필요한 미션</h2>
@@ -462,6 +569,8 @@ const Home: React.FC = () => {
                   mission={mission}
                   onClick={() => handleMissionClick(mission.id)}
                   isParentMode={true}
+                  onApproveRetry={handleApproveRetry}
+                  onRejectRetry={handleRejectRetry}
                 />
               ))}
             </div>
@@ -522,19 +631,36 @@ const Home: React.FC = () => {
             <p className="text-sm text-gray-400 mt-1">새로운 미션을 추가해보세요</p>
           </div>
         ) : (
-          filteredMissions.map((mission) => (
-            <MissionCard
-              key={mission.id}
-              mission={mission}
-              onClick={() => handleMissionClick(mission.id)}
-              isParentMode={true}
-              onEdit={
-                (mission.status === 'RETRY_REQUESTED' || mission.status === 'EXPIRED' || mission.status === 'IN_PROGRESS')
-                  ? handleEditMission
-                  : undefined
-              }
-            />
-          ))
+          filteredMissions.map((mission) => {
+            // 디버그: 재도전 요청 미션에 props 전달 확인
+            if (import.meta.env.DEV && (mission.retryRequestedBy === 'child' || mission.status === 'RETRY_REQUESTED')) {
+              console.log('[Home] 재도전 요청 미션 렌더링', {
+                missionId: mission.id,
+                status: mission.status,
+                retryRequestedBy: mission.retryRequestedBy,
+                hasHandleApproveRetry: typeof handleApproveRetry === 'function',
+                hasHandleRejectRetry: typeof handleRejectRetry === 'function',
+                handleApproveRetry,
+                handleRejectRetry,
+              });
+            }
+            const canOpenDetail = mission.status !== 'RETRY_APPROVED';
+            return (
+              <MissionCard
+                key={mission.id}
+                mission={mission}
+                onClick={canOpenDetail ? () => handleMissionClick(mission.id) : undefined}
+                isParentMode={true}
+                onEdit={
+                  (mission.status === 'RETRY_REQUESTED' || mission.status === 'EXPIRED' || mission.status === 'IN_PROGRESS')
+                    ? handleEditMission
+                    : undefined
+                }
+                onApproveRetry={handleApproveRetry}
+                onRejectRetry={handleRejectRetry}
+              />
+            );
+          })
         )}
       </div>
 
@@ -705,7 +831,7 @@ const Home: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex gap-3 mt-6">
+            <div className="flex gap-3 mt-4">
               <button
                 onClick={() => {
                   setShowCreateModal(false);
@@ -872,7 +998,7 @@ const Home: React.FC = () => {
               )}
             </div>
 
-            <div className="flex gap-3 mt-6">
+            <div className="flex gap-3 mt-4">
               <button
                 onClick={() => {
                   // setShowRetryModal(false);
@@ -954,7 +1080,7 @@ const Home: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex gap-3 mt-6">
+            <div className="flex gap-3 mt-4">
               <button
                 onClick={() => {
                   // setShowPartialModal(false);

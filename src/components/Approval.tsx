@@ -249,7 +249,7 @@ const Approval: React.FC = () => {
   return (
     <PageLayout headerHeight={NORMAL_HEADER_HEIGHT} className="pb-8">
       {/* Header */}
-      <div className="bg-white px-5 pt-4 pb-4 flex items-center gap-4">
+      <header className="bg-white px-5 pt-4 pb-4 flex items-center gap-2 mb-4">
         <button
           onClick={navigateToChildHome}
           className="w-10 h-10 flex items-center justify-center"
@@ -258,12 +258,12 @@ const Approval: React.FC = () => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <h1 className="text-xl font-bold text-gray-800">
+        <h1 className="text-lg font-semibold text-gray-800">
           {headerChildName ? `${headerChildName}의 미션` : '미션 승인'}
         </h1>
-      </div>
+      </header>
 
-      <div className="px-5 mt-6">
+      <div className="mx-auto px-4 pb-28">
         {/* 처리 중일 때는 Empty State를 표시하지 않고 로딩 상태 표시 */}
         {processingMissionId !== null ? (
           <div className="text-center py-12">
@@ -281,71 +281,73 @@ const Approval: React.FC = () => {
             <p className="text-sm text-gray-300 mt-2">자녀가 미션을 제출하면 여기에 표시됩니다</p>
           </div>
         ) : (
-          submittedMissions.map(mission => {
-            // 아이 이름은 각 미션마다 필요하므로 별도 상태로 관리하지 않고
-            // 헤더에는 첫 번째 미션의 아이 이름만 표시
-            const isProcessing = processingMissionId === mission.id;
-
-            return (
-            <div key={mission.id} className="bg-white rounded-2xl p-5 mb-4 shadow-sm border-2 border-gray-100">
-
-              {/* Mission Title */}
-              <div className="mb-4">
+          submittedMissions.map(mission => (
+            <div key={mission.id} className="bg-white rounded-2xl shadow-sm p-5 mb-4 border border-gray-100">
+              {/* 미션 제목 & 포인트 */}
                 <div className="flex items-center gap-2 mb-2">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm ${
                     mission.missionType === 'DAILY' ? 'bg-blue-500' : 'bg-orange-500'
                   }`}>
                     {mission.missionType === 'DAILY' ? '일' : '주'}
                   </div>
-                  <h2 className="text-xl font-bold text-gray-800">{mission.title}</h2>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-lg font-bold text-green-600">+{mission.rewardPoint}</span>
-                  <span className="text-sm text-gray-500">포인트</span>
-                </div>
+                <h2 className="text-base font-semibold text-gray-800">{mission.title}</h2>
               </div>
-
+              <p className="text-green-500 font-semibold text-sm">+{mission.rewardPoint} 포인트</p>
 
               {/* 아이가 작성한 메모 */}
               {mission.memo && (
-                <div className="mb-4">
+                <div className="mt-4">
                   <p className="text-sm text-gray-500 mb-2">아이가 작성한 메모</p>
-                  <p className="text-gray-700 text-base bg-gray-50 p-4 rounded-xl">
+                  <div className="mt-2 bg-gray-50 rounded-xl p-3 text-sm text-gray-700">
                     {mission.memo}
-                  </p>
+                  </div>
                 </div>
               )}
 
-              {/* Action Buttons */}
-              <div className="flex gap-3 mt-6">
+              {/* 아이가 올린 사진 */}
+              {mission.photoUrl && (
+                <div className="mt-4">
+                  <p className="text-sm text-gray-500 mb-2">📷 아이가 올린 사진</p>
+                  <img
+                    src={mission.photoUrl}
+                    alt="미션 인증 사진"
+                    className="w-full rounded-xl object-cover max-h-64 border border-gray-200"
+                  />
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* 하단 고정 승인/거절 버튼 (확인할 미션이 있을 때만 표시) */}
+      {submittedMissions.length > 0 && processingMissionId === null && (() => {
+        const firstMission = submittedMissions[0];
+        const canApprove = canApproveMission(user, firstMission);
+        const canReject = canRejectMission(user, firstMission);
+        return (
+          <div className="fixed bottom-0 left-0 right-0 mx-auto bg-white border-t border-gray-200 p-4 pb-[env(safe-area-inset-bottom)]">
+            <div className="flex gap-3">
                 <button
-                  onClick={() => handleApprove(mission.id)}
-                  disabled={!canApproveMission(user, mission) || isProcessing}
-                  className={`flex-1 py-4 rounded-xl font-bold text-base transition-colors ${
-                    canApproveMission(user, mission) && !isProcessing
-                      ? 'bg-green-500 text-white hover:bg-green-600 active:bg-green-700'
-                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  }`}
-                >
-                  {isProcessing ? '처리 중...' : '👍 미션 완료!'}
+                type="button"
+                onClick={() => handleApprove(firstMission.id)}
+                disabled={!canApprove}
+                className="flex-1 bg-green-500 text-white py-4 rounded-2xl font-semibold shadow-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-green-600 transition-colors"
+              >
+                👍 승인하기
                 </button>
                 <button
-                  onClick={() => handleRejectClick(mission.id)}
-                  disabled={!canRejectMission(user, mission) || isProcessing}
-                  className={`flex-1 py-4 rounded-xl font-bold text-base transition-colors border-2 ${
-                    canRejectMission(user, mission) && !isProcessing
-                      ? 'bg-white border-red-400 text-red-600 hover:bg-red-50 active:bg-red-100'
-                      : 'bg-gray-100 border-gray-300 text-gray-400 cursor-not-allowed'
-                  }`}
-                >
-                  {isProcessing ? '처리 중...' : '다시 해볼까요?'}
+                type="button"
+                onClick={() => handleRejectClick(firstMission.id)}
+                disabled={!canReject}
+                className="flex-1 border border-red-400 text-red-500 py-4 rounded-2xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-red-50 transition-colors"
+              >
+                다시 해볼까요?
                 </button>
               </div>
             </div>
             );
-          })
-        )}
-      </div>
+      })()}
 
       {/* 재도전 요청 확인 모달 */}
       {showRetryConfirm && (

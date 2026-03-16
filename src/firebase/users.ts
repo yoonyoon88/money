@@ -1,6 +1,7 @@
-import { doc, getDoc, onSnapshot, updateDoc, addDoc, collection, serverTimestamp, DocumentData, Timestamp, deleteDoc, arrayRemove, getDocs, query, where, writeBatch, setDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, updateDoc, addDoc, collection, serverTimestamp, DocumentData, Timestamp, deleteDoc, getDocs, query, where, writeBatch, setDoc } from 'firebase/firestore';
 import { db } from './config';
-import { User } from '../types';
+import { safeUserUpdate } from '../utils/firestoreSafeUpdate';
+import { User, type Subscription } from '../types';
 
 // ============================================================================
 // 날짜 필드 변환 헬퍼 함수
@@ -111,6 +112,10 @@ const docToUser = (docData: DocumentData, id: string): User => {
       // 아이인 경우
       parentId: data.parentId || undefined,
       gender, // 자녀 성별
+      subscription: parseSubscription(data),
+      // Soft delete
+      isDeleted: data.isDeleted === true,
+      deletedAt: data.deletedAt != null ? toISOString(data.deletedAt) ?? null : undefined,
     };
   } catch (error) {
     // 에러 발생 시 최소한의 User 객체 반환 (앱이 깨지지 않도록)
@@ -122,6 +127,31 @@ const docToUser = (docData: DocumentData, id: string): User => {
     };
   }
 };
+
+/** Firestore 구독 필드 → Subscription (2단: free/premium, 기존 basic→free) */
+function parseSubscription(data: DocumentData): Subscription | undefined {
+  if (data.subscription && typeof data.subscription === 'object') {
+    const s = data.subscription;
+    const plan = s.plan === 'premium' ? 'premium' : 'free'; // basic → free
+    const status = s.status === 'canceled' ? 'canceled' : s.status === 'expired' ? 'expired' : 'active';
+    const provider = s.provider === 'playstore' ? 'playstore' : s.provider === 'apple' ? 'apple' : s.provider === 'google' ? 'google' : s.provider === 'pg' ? 'pg' : 'none';
+    return {
+      plan,
+      status,
+      provider,
+      currentPeriodEnd: toISOString(s.currentPeriodEnd),
+      cancelAtPeriodEnd: !!s.cancelAtPeriodEnd,
+    };
+  }
+  const plan = data.subscription === 'premium' ? 'premium' : 'free';
+  return {
+    plan,
+    status: data.subscriptionStatus === 'canceled' ? 'canceled' : 'active',
+    provider: 'none',
+    currentPeriodEnd: toISOString(data.subscriptionExpireAt),
+    cancelAtPeriodEnd: false,
+  };
+}
 
 // ============================================================================
 // 사용자 정보 조회 및 구독
@@ -148,6 +178,52 @@ export const getUser = async (userId: string): Promise<User | null> => {
   } catch (error) {
     // childId일 가능성이 있으므로 조용히 처리 (에러 throw하지 않음)
     return null;
+  }
+};
+
+/**
+ * 부모의 홈에 표시되는 자녀 수 (isDeleted !== true 인 자녀만)
+ * Soft Delete 후 자녀 추가 한도 등에 사용
+ */
+export const getVisibleChildrenCount = async (parentId: string): Promise<number> => {
+  if (!db) return 0;
+  try {
+    const parentDoc = await getDoc(doc(db, 'users', parentId));
+    const childrenIds = parentDoc.data()?.childrenIds;
+    if (!Array.isArray(childrenIds) || childrenIds.length === 0) return 0;
+    let count = 0;
+    for (const childId of childrenIds) {
+      const child = await getUser(childId);
+      if (child && child.isDeleted !== true) count++;
+    }
+    return count;
+  } catch {
+    return 0;
+  }
+};
+
+/**
+ * 부모의 활성 자녀 목록 (isDeleted !== true 인 자녀만)
+ * 역할 전환/자녀 선택 화면 등에서 사용
+ */
+export const getActiveChildren = async (
+  parentId: string
+): Promise<Array<{ id: string; name: string }>> => {
+  if (!db) return [];
+  try {
+    const parentDoc = await getDoc(doc(db, 'users', parentId));
+    const childrenIds = parentDoc.data()?.childrenIds;
+    if (!Array.isArray(childrenIds) || childrenIds.length === 0) return [];
+    const list: Array<{ id: string; name: string }> = [];
+    for (const childId of childrenIds) {
+      const child = await getUser(childId);
+      if (child && child.isDeleted !== true) {
+        list.push({ id: childId, name: child.name ?? '자녀' });
+      }
+    }
+    return list;
+  } catch {
+    return [];
   }
 };
 
@@ -179,7 +255,7 @@ const createDefaultUserDocument = async (
       updatedAt: now,
     };
 
-    await setDoc(doc(db, 'users', userId), defaultUserData, { merge: false });
+    await setDoc(doc(db, 'users', userId), defaultUserData, { merge: true });
     
     console.log('[users] 기본 사용자 문서 생성 완료:', userId);
     return defaultUserData;
@@ -271,6 +347,85 @@ export const subscribeUser = (
       callback(null);
     }
   );
+};
+
+// ============================================================================
+// 구독 관리 (2단: 무료/프리미엄, Google Play 기준 - 실제 결제 없이 subscription만 변경)
+// ============================================================================
+
+export type SubscriptionPlan = 'free' | 'premium';
+
+function getNextBillingDate(): Date {
+  const d = new Date();
+  d.setMonth(d.getMonth() + 1);
+  return d;
+}
+
+/**
+ * 구독 플랜 변경 (시뮬레이션)
+ * Firestore: subscription = { plan, status, provider, currentPeriodEnd, cancelAtPeriodEnd }
+ */
+export const updateUserSubscription = async (
+  userId: string,
+  plan: SubscriptionPlan
+): Promise<void> => {
+  if (!db) {
+    throw new Error('Firestore가 초기화되지 않았습니다.');
+  }
+
+  const nextBilling = plan === 'premium' ? getNextBillingDate() : null;
+
+  const subscription: Record<string, unknown> = {
+    plan,
+    status: 'active',
+    provider: plan === 'premium' ? 'playstore' : 'none',
+    cancelAtPeriodEnd: false,
+  };
+
+  if (nextBilling) {
+    subscription.currentPeriodEnd = Timestamp.fromDate(nextBilling);
+  } else {
+    subscription.currentPeriodEnd = null;
+  }
+
+  await safeUserUpdate(userId, {
+    subscription,
+    updatedAt: serverTimestamp(),
+  });
+};
+
+/**
+ * 구독 해지 (기간 종료 후 해지) - subscription.cancelAtPeriodEnd = true
+ */
+export const cancelUserSubscription = async (userId: string): Promise<void> => {
+  if (!db) {
+    throw new Error('Firestore가 초기화되지 않았습니다.');
+  }
+
+  const userRef = doc(db, 'users', userId);
+  const snap = await getDoc(userRef);
+  if (!snap.exists()) {
+    throw new Error('사용자 정보를 찾을 수 없습니다.');
+  }
+
+  const data = snap.data();
+  const current = data.subscription && typeof data.subscription === 'object'
+    ? { ...data.subscription }
+    : {
+        plan: data.subscription === 'premium' ? 'premium' : 'free',
+        status: 'active',
+        provider: 'none',
+        currentPeriodEnd: data.subscriptionExpireAt ?? null,
+        cancelAtPeriodEnd: false,
+      };
+
+  await updateDoc(userRef, {
+    subscription: {
+      ...current,
+      cancelAtPeriodEnd: true,
+    },
+    updatedAt: serverTimestamp(),
+  });
 };
 
 // ============================================================================
@@ -414,11 +569,11 @@ export const updateChildInfo = async (
 };
 
 /**
- * 자녀 삭제 (모든 관련 데이터 포함)
- * - 자녀의 모든 미션 삭제
- * - 자녀의 포인트 사용 기록 삭제
- * - 부모의 childrenIds에서 제거
- * - 자녀 사용자 문서 삭제
+ * 자녀 삭제 (Soft Delete)
+ * - 자녀의 모든 미션: isDeleted = true, deletedAt = serverTimestamp()
+ * - 자녀 사용자 문서: isDeleted = true, deletedAt = serverTimestamp() (문서는 삭제하지 않음)
+ * - 부모의 childrenIds는 유지 (홈에서는 isDeleted === false인 자녀만 표시)
+ * - pointUsages, wishlist는 기존대로 처리
  * 
  * @param childId - 삭제할 자녀의 사용자 ID
  * @param parentId - 부모의 사용자 ID
@@ -434,7 +589,7 @@ export const deleteChild = async (
   try {
     const batch = writeBatch(db);
 
-    // 1. 자녀의 모든 미션 삭제 (isDeleted = true로 표시)
+    // 1. 자녀의 모든 미션 Soft Delete (isDeleted = true, deletedAt = serverTimestamp())
     const missionsQuery = query(
       collection(db, 'missions'),
       where('childId', '==', childId),
@@ -471,18 +626,13 @@ export const deleteChild = async (
       batch.delete(wishRef);
     });
 
-    // 4. 부모의 childrenIds에서 자녀 ID 제거
-    const parentRef = doc(db, 'users', parentId);
-    batch.update(parentRef, {
-      childrenIds: arrayRemove(childId),
-      updatedAt: serverTimestamp(),
+    // 4. 자녀 사용자 문서 Soft Delete (문서 삭제하지 않음)
+    const childRef = doc(db, 'users', childId);
+    batch.update(childRef, {
+      isDeleted: true,
+      deletedAt: serverTimestamp(),
     });
 
-    // 5. 자녀 사용자 문서 삭제
-    const childRef = doc(db, 'users', childId);
-    batch.delete(childRef);
-
-    // 모든 작업을 한 번에 실행
     await batch.commit();
   } catch (error) {
     throw error;

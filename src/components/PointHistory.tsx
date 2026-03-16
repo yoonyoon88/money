@@ -102,83 +102,90 @@ const PointHistoryPage: React.FC = () => {
     return [];
   }, [pointHistory, activeTab]);
 
-  // 로딩 스켈레톤
+  // 로딩 스켈레톤 - ChildHome 톤 통일
   if (loading) {
     return (
       <PageLayout headerHeight={NORMAL_HEADER_HEIGHT}>
-        {/* Header */}
-        <div className="bg-white px-5 pt-4 pb-4 flex items-center gap-4">
+        <div className="bg-[#FFF9ED] min-h-screen">
+          <div className="mx-auto min-h-screen px-5 pt-4 pb-6">
+            <header className="flex items-center gap-4 pb-4">
           <button
             onClick={() => navigate(-1)}
-            className="w-10 h-10 flex items-center justify-center"
+                className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/60 transition-colors"
           >
             <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
           <h1 className="text-xl font-bold text-gray-800">포인트 내역</h1>
+            </header>
+
+            <div className="bg-gradient-to-r from-yellow-400 to-orange-500 rounded-3xl p-5 shadow-md animate-pulse">
+              <div className="h-3 bg-white/30 rounded w-40 mb-3" />
+              <div className="h-10 bg-white/30 rounded w-28" />
         </div>
 
-        {/* 스켈레톤 */}
-        <div className="px-5 mt-6">
-          {/* 요약 카드 스켈레톤 */}
-          <div className="bg-white rounded-2xl p-6 mb-6 shadow-sm border-2 border-gray-200 animate-pulse">
-            <div className="h-6 bg-gray-200 rounded w-32 mb-2"></div>
-            <div className="h-10 bg-gray-200 rounded w-24"></div>
+            <div className="flex bg-white rounded-xl p-1 shadow-sm mt-5">
+              <div className="flex-1 h-10 bg-gray-100 rounded-lg" />
+              <div className="flex-1 h-10 bg-gray-100 rounded-lg mx-1" />
+              <div className="flex-1 h-10 bg-gray-100 rounded-lg" />
           </div>
-          {/* 리스트 스켈레톤 */}
+
+            <div className="mt-4 space-y-4">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="bg-white rounded-2xl p-4 mb-3 shadow-sm border-2 border-gray-200 animate-pulse">
+                <div key={i} className="bg-white rounded-2xl p-4 shadow-md border border-gray-100 animate-pulse">
+                  <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-gray-200"></div>
-                <div className="flex-1">
-                  <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
-                  <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+                      <div className="w-12 h-12 rounded-full bg-gray-200" />
+                      <div>
+                        <div className="h-4 bg-gray-200 rounded w-32 mb-2" />
+                        <div className="h-3 bg-gray-200 rounded w-24" />
+                      </div>
                 </div>
-                <div className="h-6 bg-gray-200 rounded w-16"></div>
+                    <div className="h-6 bg-gray-200 rounded w-16" />
               </div>
             </div>
           ))}
+            </div>
+          </div>
         </div>
       </PageLayout>
     );
   }
 
-  // 에러 상태
+  // 에러 상태 - 동일 톤
   if (error) {
     return (
       <PageLayout headerHeight={NORMAL_HEADER_HEIGHT}>
-        {/* Header */}
-        <div className="bg-white px-5 pt-4 pb-4 flex items-center gap-4">
+        <div className="bg-[#FFF9ED] min-h-screen">
+          <div className="mx-auto min-h-screen px-5 pt-4 pb-6">
+            <header className="flex items-center gap-4 pb-4">
           <button
             onClick={() => navigate(-1)}
-            className="w-10 h-10 flex items-center justify-center"
+                className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/60 transition-colors"
           >
             <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
           <h1 className="text-xl font-bold text-gray-800">포인트 내역</h1>
-        </div>
+            </header>
 
-        {/* 에러 메시지 */}
-        <div className="px-5 mt-6">
-          <div className="bg-white rounded-2xl p-6 shadow-sm border-2 border-red-200 text-center">
-            <div className="mb-4 flex justify-center">
-              <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
-                <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="bg-white rounded-2xl p-6 shadow-md border border-gray-100 text-center mt-4">
+              <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-4">
+                <svg className="w-7 h-7 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
-            </div>
-            <p className="text-gray-700 text-lg font-medium mb-2">오류가 발생했어요</p>
-            <p className="text-gray-500 text-sm">{error}</p>
+              <p className="text-gray-800 font-semibold mb-1">오류가 발생했어요</p>
+              <p className="text-sm text-gray-500 mb-4">{error}</p>
             <button
               onClick={() => navigate(-1)}
-              className="mt-4 px-6 py-2 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition-colors"
+                className="px-5 py-2.5 bg-yellow-400 text-white rounded-lg text-sm font-semibold hover:bg-yellow-500 transition duration-200"
             >
               돌아가기
             </button>
+            </div>
           </div>
         </div>
       </PageLayout>
@@ -211,37 +218,37 @@ const PointHistoryPage: React.FC = () => {
 
   return (
     <PageLayout headerHeight={NORMAL_HEADER_HEIGHT} className="pb-8">
+      <div className="bg-[#FFF9ED] min-h-screen">
+        <div className="mx-auto min-h-screen px-5 pt-4 pb-6">
       {/* Header */}
-      <div className="bg-white px-5 pt-4 pb-4 flex items-center gap-4">
+          <header className="flex items-center gap-4 pb-4">
         <button
           onClick={() => navigate(-1)}
-          className="w-10 h-10 flex items-center justify-center"
+              className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/60 transition-colors"
         >
           <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
         <h1 className="text-xl font-bold text-gray-800">포인트 내역</h1>
+          </header>
+
+          {/* 상단 포인트 카드 - ChildHome과 동일 그라데이션 */}
+          <div className="bg-gradient-to-r from-yellow-400 to-orange-500 rounded-3xl p-5 shadow-md">
+            <p className="text-xs text-white/90 mb-1">지금 사용할 수 있는 포인트예요</p>
+            <p className="text-4xl font-extrabold text-white leading-none">
+              {currentPoint.toLocaleString()}
+              <span className="text-base ml-1 font-semibold opacity-90">P</span>
+            </p>
       </div>
 
-      {/* 상단 요약 영역 - 남은 포인트 카드 */}
-      <div className="px-5 mt-6">
-        <div className="bg-gradient-to-br from-yellow-400 via-yellow-500 to-yellow-600 rounded-2xl p-6 shadow-sm border-2 border-yellow-300">
-          <p className="text-sm text-yellow-900/80 font-medium mb-2">지금 사용할 수 있는 포인트예요</p>
-          <p className="text-4xl font-extrabold text-yellow-900">
-            {currentPoint.toLocaleString()}P
-          </p>
-        </div>
-      </div>
-
-      {/* 탭 구성 */}
-      <div className="px-5 mt-6">
-        <div className="flex gap-2 bg-gray-100 p-1 rounded-xl">
+          {/* 탭 - 또렷한 스타일 */}
+          <div className="flex bg-white rounded-xl p-1 shadow-sm mt-5">
           <button
             onClick={() => setActiveTab('ALL')}
-            className={`flex-1 py-2.5 px-4 rounded-lg font-semibold text-sm transition-colors ${
+              className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition duration-200 ${
               activeTab === 'ALL'
-                ? 'bg-white text-gray-800 shadow-sm'
+                  ? 'bg-yellow-400 text-white'
                 : 'text-gray-600 hover:text-gray-800'
             }`}
           >
@@ -249,9 +256,9 @@ const PointHistoryPage: React.FC = () => {
           </button>
           <button
             onClick={() => setActiveTab('EARN')}
-            className={`flex-1 py-2.5 px-4 rounded-lg font-semibold text-sm transition-colors ${
+              className={`flex-1 rounded-lg px-4 py-2 text-sm transition duration-200 ${
               activeTab === 'EARN'
-                ? 'bg-white text-gray-800 shadow-sm'
+                  ? 'bg-yellow-400 text-white font-semibold'
                 : 'text-gray-600 hover:text-gray-800'
             }`}
           >
@@ -259,79 +266,86 @@ const PointHistoryPage: React.FC = () => {
           </button>
           <button
             onClick={() => setActiveTab('USE')}
-            className={`flex-1 py-2.5 px-4 rounded-lg font-semibold text-sm transition-colors ${
+              className={`flex-1 rounded-lg px-4 py-2 text-sm transition duration-200 ${
               activeTab === 'USE'
-                ? 'bg-white text-gray-800 shadow-sm'
+                  ? 'bg-yellow-400 text-white font-semibold'
                 : 'text-gray-600 hover:text-gray-800'
             }`}
           >
             사용
           </button>
-        </div>
       </div>
 
       {/* 포인트 내역 리스트 */}
-      <div className="px-5 mt-6">
+          <div className="mt-4">
         {filteredHistory.length === 0 ? (
-          // 빈 상태
           <div className="text-center py-12">
             <div className="mb-4 flex justify-center">
               <Character size="large" showSpeechBubble speechText={getEmptyMessage().title} />
             </div>
-            <p className="text-gray-400 text-lg mb-2">{getEmptyMessage().title}</p>
+                <p className="text-gray-500 text-base mb-1">{getEmptyMessage().title}</p>
             {getEmptyMessage().description && (
-              <p className="text-sm text-gray-300 whitespace-pre-line text-center">
+                  <p className="text-sm text-gray-400 whitespace-pre-line text-center">
                 {getEmptyMessage().description}
               </p>
             )}
           </div>
         ) : (
-          // 내역 리스트 (최신순 정렬 - 이미 subscribePointHistory에서 정렬됨)
           filteredHistory.map((item) => {
             const isEarn = item.type === 'earn';
             const isUse = item.type === 'use';
+                const isAdjust = item.type === 'adjust';
+                // 적립: green, 사용: red, 조정: gray
+                const iconBg = isEarn ? 'bg-green-100 text-green-500' : isUse ? 'bg-red-100 text-red-500' : 'bg-gray-100 text-gray-500';
+                const amountColor = isEarn ? 'text-green-600' : isUse ? 'text-red-500' : 'text-gray-600';
+                const amountSign = isEarn ? '+' : isUse ? '-' : (item.amount >= 0 ? '+' : '');
             
             return (
               <div
                 key={item.id}
-                className="bg-white rounded-2xl p-4 mb-3 shadow-sm border-2 border-gray-200"
+                    className="bg-white rounded-2xl shadow-md border border-gray-100 p-4 mt-4 flex items-center justify-between transition duration-200 hover:shadow-lg"
               >
-                <div className="flex items-center gap-3">
-                  {/* 아이콘 */}
-                  <div className={`w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 ${
-                    isEarn ? 'bg-green-100' : 'bg-orange-100'
-                  }`}>
-                    <span className="text-2xl">
-                      {isEarn ? '➕' : '➖'}
-                    </span>
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      {/* 왼쪽 아이콘 - 적립: green, 사용: red, 조정: gray */}
+                      <div
+                        className={`w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 text-xl ${iconBg}`}
+                      >
+                        {isEarn ? (
+                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                          </svg>
+                        ) : isUse ? (
+                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                          </svg>
+                        ) : (
+                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                        )}
                   </div>
 
-                  {/* 사유 및 날짜 */}
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-base font-bold text-gray-800 mb-1 truncate">
+                        <h3 className="text-base font-semibold text-gray-800 truncate">
                       {item.reason}
                     </h3>
                     {item.rewardTitle && (
-                      <p className="text-sm text-gray-600 mb-1">
-                        {item.rewardTitle}
-                      </p>
+                          <p className="text-xs text-gray-500 truncate mt-0.5">{item.rewardTitle}</p>
                     )}
-                    <p className="text-sm text-gray-500">
-                      {formatDate(item.createdAt)}
-                    </p>
+                        <p className="text-xs text-gray-400 mt-1">{formatDate(item.createdAt)}</p>
+                      </div>
                   </div>
 
-                  {/* 포인트 수치 */}
-                  <div className={`text-lg font-bold flex-shrink-0 ${
-                    item.amount > 0 ? 'text-green-600' : 'text-red-600'
-                  }`}>
-                    {item.amount > 0 ? '+' : ''}{item.amount}P
-                  </div>
+                    {/* 금액 - 적립: green-600, 사용: red-500, 조정: gray */}
+                    <div className={`text-lg font-bold flex-shrink-0 ml-3 ${amountColor}`}>
+                      {amountSign}{Math.abs(item.amount)}P
                 </div>
               </div>
             );
           })
         )}
+          </div>
+        </div>
       </div>
     </PageLayout>
   );

@@ -1,6 +1,8 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage'; 
+import { getRemoteConfig } from 'firebase/remote-config';
 
 // Firebase 설정
 const firebaseConfig = {
@@ -12,11 +14,12 @@ const firebaseConfig = {
   appId: "1:658543947824:web:2dd19ac875fd2808d4bdf5"
 };
 
-// Firebase 초기화 (❗ try/catch 제거)
 const app = initializeApp(firebaseConfig);
 
-// 서비스 초기화 (❗ null 없음)
+// 서비스 초기화
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export const storage = getStorage(app);
+export const remoteConfig = getRemoteConfig(app);
 
 export default app;

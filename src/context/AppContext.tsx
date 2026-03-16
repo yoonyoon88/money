@@ -303,7 +303,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               updatedAt: now,
             };
 
-            await setDoc(doc(db, 'users', firebaseUser.uid), defaultUserData, { merge: false });
+            await setDoc(doc(db, 'users', firebaseUser.uid), defaultUserData, { merge: true });
             
             const user: User = {
               id: firebaseUser.uid,

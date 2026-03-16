@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
-import { getUser } from '../firebase/users';
-import { db } from '../firebase/config';
+import { getActiveChildren } from '../firebase/users';
 import Character from '../components/Character';
 
 const SelectChild: React.FC = () => {
@@ -28,37 +27,19 @@ const SelectChild: React.FC = () => {
     );
   }
 
-  // 자녀 목록 정보 가져오기 (childrenIds 배열 기준)
+  // 자녀 목록 정보 가져오기 (삭제된 자녀 제외)
   useEffect(() => {
-    if (!user?.childrenIds || user.childrenIds.length === 0 || !db) {
+    if (!user?.id || user.role !== 'PARENT') {
       setChildrenList([]);
       setLoading(false);
       return;
     }
 
-    // 모든 자녀 정보를 병렬로 조회
-    Promise.all(
-      user.childrenIds.map(async (childId) => {
-        try {
-          // childId일 가능성이 있으므로 getUser 호출 (문서가 없으면 조용히 null 반환)
-          const childUser = await getUser(childId);
-          if (childUser) {
-            return { name: childUser.name, uid: childId };
-          }
-          // childId가 user 문서가 아닐 수 있으므로 조용히 skip
-          return null;
-        } catch (error) {
-          // childId일 가능성이 있으므로 조용히 처리
-          return null;
-        }
-      })
-    ).then((children) => {
-      // null 값 필터링 (childId가 user 문서가 아닌 경우)
-      const validChildren = children.filter((child) => child !== null);
-      setChildrenList(validChildren);
+    getActiveChildren(user.id).then((list) => {
+      setChildrenList(list.map((c) => ({ name: c.name, uid: c.id })));
       setLoading(false);
     });
-  }, [user?.childrenIds]);
+  }, [user?.id, user?.role]);
 
   // 자녀 선택 핸들러
   const handleChildSelect = (childUid: string) => {
@@ -126,7 +107,7 @@ const SelectChild: React.FC = () => {
             })
           )}
         </div>
-        <div className="mt-6">
+        <div className="mt-4">
           {/* v1.0: 자녀 수 제한 (1명만 가능) */}
           {childrenList.length >= 1 ? (
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">

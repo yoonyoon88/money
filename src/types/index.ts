@@ -1,3 +1,5 @@
+import { Timestamp } from 'firebase/firestore';
+
 // 미션 상태 정의 (정합성 필수)
 // Firestore mission.status 값은 아래로 통일
 // - TODO: 아직 시작하지 않은 미션
@@ -15,6 +17,7 @@ export type MissionStatus =
   | 'APPROVED'           // 부모가 승인 완료한 상태
   | 'COMPLETED'          // 승인까지 끝나고 기록용으로 완료된 상태
   | 'EXPIRED'            // 기한 초과
+  | 'FAILED'             // 재도전 거절로 인한 실패
   | 'PENDING_REVIEW'     // SUBMITTED와 동일 의미 (하위 호환성)
   | 'REQUEST'            // RESUBMITTED와 동일 의미 (하위 호환성)
   | 'RETRY_REQUESTED'    // RESUBMITTED와 동일 의미 (하위 호환성)
@@ -36,6 +39,7 @@ export interface Mission {
   status: MissionStatus;
   missionType: MissionType; // 일별 미션 또는 주간 미션
   memo?: string; // 아이가 작성한 메모
+  photoUrl?: string; // 아이가 업로드한 인증 사진 URL
   parentMemo?: string; // 부모가 작성한 문구 (선택사항)
   // Firebase 연동을 위한 필드
   childId: string; // 미션을 받은 아이의 ID
@@ -64,6 +68,7 @@ export interface Mission {
 
 export interface User {
   id: string; // Firebase document ID
+  uid?: string; // Firebase Auth UID (users 컬렉션에도 저장)
   name: string;
   totalPoint: number;
   role: UserRole; // 부모 또는 아이
@@ -77,5 +82,31 @@ export interface User {
   // 아이인 경우
   parentId?: string; // 부모의 ID
   gender?: 'male' | 'female'; // 자녀 성별 (아이인 경우)
+  // Soft delete (자녀 삭제 시)
+  isDeleted?: boolean; // 논리 삭제 여부 (기본값 false)
+  deletedAt?: string | null; // 삭제 시각 (ISO string 또는 null)
+  // 프리미엄/구독 정보 (런칭 무료 프리미엄 + 향후 유료 구독 대응)
+  plan?: 'free' | 'premium'; // 현재 플랜 (신규 가입자는 'premium'으로 생성)
+  isPremium?: boolean; // 프리미엄 여부 (전역 기준 필드)
+  subscriptionType?: 'free_launch' | 'paid' | 'trial'; // 무료 런칭/유료/트라이얼 구분
+  subscriptionExpireAt?: Timestamp | null; // 구독 만료 시각 (없으면 null)
+  // 구독 (부모인 경우) - 기존 구조 (하위 호환)
+  subscription?: Subscription;
+}
+
+/** 구독 정보 (Google Play 기준 2단: 무료/프리미엄) */
+export interface Subscription {
+  plan: 'free' | 'premium';
+  status: 'active' | 'canceled' | 'expired';
+  provider: 'none' | 'playstore' | 'apple' | 'google' | 'pg';
+  currentPeriodEnd?: string; // ISO date string
+  cancelAtPeriodEnd: boolean;
+}
+
+/** User에서 현재 플랜 취득 (basic은 하위 호환으로 free로 취급) */
+export function getSubscriptionPlan(user: User | null | undefined): 'free' | 'premium' {
+  const plan = user?.subscription?.plan ?? user?.plan;
+  if (plan === 'premium') return 'premium';
+  return 'free'; // free, basic, undefined 모두 무료
 }
 

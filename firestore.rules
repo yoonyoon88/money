@@ -33,16 +33,20 @@ service cloud.firestore {
       // totalPoint 업데이트 규칙:
       // 1. 자신의 문서이고 totalPoint가 변경되지 않는 경우
       // 2. 부모가 아이의 포인트를 증가시키는 경우 (미션 승인 시)
-      allow update: if isAuthenticated() && (
-        // 자신의 문서이고, totalPoint가 변경되지 않는 경우
-        (request.auth.uid == userId && 
-         request.resource.data.totalPoint == resource.data.totalPoint) ||
-        // 부모가 아이의 포인트를 증가시키는 경우 (트랜잭션에서 increment 사용)
-        // increment 연산은 request.resource.data에 실제 증가된 값으로 표시됨
-        (isParent(request.auth.uid) &&
-         isChild(userId) &&
-         request.resource.data.totalPoint > resource.data.totalPoint)
-      );
+      // 추가: parentPin 을 null 로 설정하는 업데이트는 항상 거부
+      allow update: if isAuthenticated() &&
+                    !("parentPin" in request.resource.data &&
+                      request.resource.data.parentPin == null) &&
+                    (
+                      // 자신의 문서이고, totalPoint가 변경되지 않는 경우
+                      (request.auth.uid == userId && 
+                       request.resource.data.totalPoint == resource.data.totalPoint) ||
+                      // 부모가 아이의 포인트를 증가시키는 경우 (트랜잭션에서 increment 사용)
+                      // increment 연산은 request.resource.data에 실제 증가된 값으로 표시됨
+                      (isParent(request.auth.uid) &&
+                       isChild(userId) &&
+                       request.resource.data.totalPoint > resource.data.totalPoint)
+                    );
       
       // 삭제: 불가
       allow delete: if false;

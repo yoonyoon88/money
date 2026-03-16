@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { doc, updateDoc } from 'firebase/firestore';
 import { useApp } from '../context/AppContext';
+import { getSubscriptionPlan } from '../types';
+import { hasPremiumAccess } from '../utils/subscription';
 import { subscribeMission } from '../firebase/missions';
+import { storage, db } from '../firebase/config';
 import { Mission } from '../types';
 import PageLayout from './PageLayout';
 import { NORMAL_HEADER_HEIGHT } from '../constants/layout';
@@ -29,7 +34,7 @@ const PERFORMABLE_STATUSES = [
  */
 const ChildMissionDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { submitMission, selectedChildId } = useApp();
+  const { submitMission, selectedChildId, user } = useApp();
   const navigate = useNavigate();
   const location = useLocation();
   const [mission, setMission] = useState<Mission | null>(null);
@@ -37,6 +42,9 @@ const ChildMissionDetail: React.FC = () => {
   const [missionNotFound, setMissionNotFound] = useState(false); // 미션 조회 실패
   const [unauthorized, setUnauthorized] = useState(false); // 권한 실패 (childId 불일치)
   const [memo, setMemo] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   // 현재 접근한 childId (location.state 우선, 없으면 selectedChildId)
   const currentChildId = (location.state as { childId?: string })?.childId || selectedChildId;
@@ -93,6 +101,13 @@ const ChildMissionDetail: React.FC = () => {
       unsubscribe();
     };
   }, [id, currentChildId, selectedChildId, location.state]);
+
+  // 미리보기 URL 메모리 해제 (언마운트 시)
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
 
   // loading 중이면 로딩 UI 표시
   if (loading) {
@@ -245,34 +260,83 @@ const ChildMissionDetail: React.FC = () => {
     }
   };
 
+  /** 이미지 압축: 최대 1200px, quality 0.85 */
+  const compressImage = (file: File): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(file);
+        return;
+      }
+      img.onload = () => {
+        const maxSize = 1200;
+        let { width, height } = img;
+        if (width > maxSize || height > maxSize) {
+          if (width > height) {
+            height = (height * maxSize) / width;
+            width = maxSize;
+          } else {
+            width = (width * maxSize) / height;
+            height = maxSize;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(
+          (blob) => (blob ? resolve(blob) : resolve(file)),
+          'image/jpeg',
+          0.85
+        );
+      };
+      img.onerror = () => resolve(file);
+      img.src = URL.createObjectURL(file);
+    });
+  };
+
   const handleSubmit = async () => {
-    // 제출 가능한 상태인지 확인
     if (!PERFORMABLE_STATUSES.includes(mission.status as any)) {
       alert('이미 제출했거나 제출할 수 없는 미션이에요.');
       return;
     }
-
-    // 메모 필수 입력 검증
     if (!memo.trim()) {
       alert('메모를 입력해주세요.');
       return;
     }
 
+    setSubmitting(true);
     try {
-      // currentChildId를 전달하여 권한 체크
+      if (selectedFile && user) {
+        const blob = await compressImage(selectedFile);
+        const storageRef = ref(
+          storage,
+          `missions/${user.id}/${mission.id}/photo.jpg`
+        );
+        await uploadBytes(storageRef, blob);
+        const downloadURL = await getDownloadURL(storageRef);
+        await updateDoc(doc(db, 'missions', mission.id), {
+          photoUrl: downloadURL,
+        });
+      }
       await submitMission(mission.id, memo.trim(), currentChildId);
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(null);
+      setSelectedFile(null);
       alert('제출 완료! 부모님이 확인하시면 포인트가 지급돼요 😊');
-      // 제출 완료 화면이 히스토리 스택에 남지 않도록 replace 사용
       navigate(`/child/${mission.childId}`, { replace: true });
     } catch (error) {
       alert(error instanceof Error ? error.message : '미션 제출이 완료되지 않았어요');
+    } finally {
+      setSubmitting(false);
     }
   };
 
   return (
     <PageLayout headerHeight={NORMAL_HEADER_HEIGHT} className="pb-8">
       {/* Header */}
-      <div className="bg-white px-5 pt-4 pb-4 flex items-center gap-4">
+      <header className="bg-white px-5 pt-4 pb-4 flex items-center gap-4">
         <button
           onClick={() => navigate(`/child/${mission.childId}`)}
           className="w-10 h-10 flex items-center justify-center"
@@ -282,68 +346,109 @@ const ChildMissionDetail: React.FC = () => {
           </svg>
         </button>
         <h1 className="text-xl font-bold text-gray-800">미션 결과 알려주기</h1>
-      </div>
+      </header>
 
-      <div className="px-5 mt-6">
-        {/* Mission Info */}
-        <div className="bg-white rounded-2xl p-5 mb-4 shadow-sm border-2 border-gray-100">
-          <div className="flex items-center gap-2 mb-3">
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-base ${
+      <div className="mx-auto px-4 pb-28">
+        {/* 미션 요약 카드 */}
+        <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
+          <div className="flex items-center gap-2 mb-1">
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs ${
               mission.missionType === 'DAILY' ? 'bg-blue-500' : 'bg-orange-500'
             }`}>
               {mission.missionType === 'DAILY' ? '일' : '주'}
             </div>
-            <h2 className="text-2xl font-bold text-gray-800">{mission.title}</h2>
+            <h2 className="text-base font-semibold text-gray-800">{mission.title}</h2>
           </div>
-          
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-lg font-bold text-green-600">+{mission.rewardPoint}</span>
-            <span className="text-sm text-gray-500">포인트</span>
-          </div>
-
-          <div className="mb-3">
-            <p className="text-sm text-gray-500 mb-1">마감일</p>
-            <p className="text-base font-medium text-gray-700">
+          <p className="text-green-500 font-bold text-sm">+{mission.rewardPoint} 포인트</p>
+          <p className="text-xs text-gray-500 mt-0.5">
               {formatDueDate(mission.dueAt, mission.missionType)}
             </p>
-          </div>
-
           {mission.description && (
-            <div className="pt-3 border-t border-gray-100">
-              <p className="text-gray-600 text-base">{mission.description}</p>
-            </div>
+            <p className="text-xs text-gray-400 mt-2 pt-2 border-t border-gray-100 leading-tight">
+              {mission.description}
+            </p>
           )}
-          
-          {/* 반복 미션 설명 (상세 화면에서만 표시) */}
           {getRepeatDaysDescription() && (
-            <div className="pt-3 border-t border-gray-100">
-              <p className="text-sm text-gray-500">{getRepeatDaysDescription()}</p>
-            </div>
+            <p className="text-xs text-gray-400 mt-0.5 leading-tight">
+              {getRepeatDaysDescription()}
+            </p>
           )}
         </div>
 
-        {/* Memo (필수사항) */}
-        <div className="mb-6">
-          <label className="block text-gray-700 font-medium mb-2">
-            메모 <span className="text-red-500 text-sm">*</span>
+        {/* 메모 입력 영역 */}
+        <label className="block mt-4 mb-2 text-sm font-medium text-gray-600">
+          오늘 어떻게 했는지 알려주세요 😊
           </label>
           <textarea
             value={memo}
             onChange={(e) => setMemo(e.target.value)}
-            placeholder="오늘 어떻게 했는지 부모님께 알려주세요 😊"
+          placeholder="부모님께 전할 말을 적어주세요"
             maxLength={200}
-            rows={4}
-            className="w-full p-4 border-2 border-gray-200 rounded-2xl focus:outline-none focus:border-orange-400 text-base resize-none"
+          className="w-full bg-white rounded-xl p-4 border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-400 resize-none min-h-[90px]"
+        />
+        <p className="text-xs text-right text-gray-400 mt-1">{memo.length}/200</p>
+
+        {/* 사진 첨부 카드 - 프리미엄만 표시 */}
+        {hasPremiumAccess(getSubscriptionPlan(user)) && (
+        <div className="mt-4 p-3 bg-white rounded-xl border border-gray-100">
+          <p className="text-sm text-gray-500 mb-2">📷 사진 첨부 (선택)</p>
+          <input
+            type="file"
+            accept="image/*"
+            id="photoInput"
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files?.[0]) {
+                const file = e.target.files[0];
+                if (previewUrl) URL.revokeObjectURL(previewUrl);
+                setSelectedFile(file);
+                setPreviewUrl(URL.createObjectURL(file));
+              }
+            }}
           />
-          <p className="text-xs text-gray-400 mt-1 text-right">{memo.length}/200</p>
+          {previewUrl ? (
+            <div className="relative border-2 border-dashed border-gray-200 rounded-lg overflow-hidden">
+              <img
+                src={previewUrl}
+                alt="미리보기"
+                className="w-full object-cover max-h-48"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (previewUrl) URL.revokeObjectURL(previewUrl);
+                  setSelectedFile(null);
+                  setPreviewUrl(null);
+                }}
+                className="absolute top-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded"
+              >
+                삭제
+              </button>
+            </div>
+          ) : (
+            <label
+              htmlFor="photoInput"
+              className="block border-2 border-dashed border-gray-200 rounded-lg p-4 text-center cursor-pointer hover:border-orange-300 hover:bg-orange-50/30 transition-colors"
+            >
+              <p className="text-sm text-gray-400">
+                사진을 선택하면 여기에 미리보기가 표시됩니다
+              </p>
+              <span className="inline-block mt-1 text-sm text-orange-500 font-medium">사진 선택하기</span>
+            </label>
+          )}
+        </div>
+        )}
         </div>
 
-        {/* Submit Button */}
+      {/* 하단 고정 완료 버튼 */}
+      <div className="fixed bottom-0 left-0 right-0 mx-auto bg-white border-t border-gray-200 p-4 pb-[env(safe-area-inset-bottom)]">
         <button
+          type="button"
           onClick={handleSubmit}
-          className="w-full py-4 rounded-2xl font-bold text-lg shadow-md transition-colors bg-orange-400 text-white hover:bg-orange-500 active:bg-orange-600"
+          disabled={submitting}
+          className="w-full bg-orange-500 hover:bg-orange-600 transition text-white py-4 rounded-2xl text-lg font-semibold shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          완료했어요! ✨
+          {submitting ? '처리 중...' : '완료했어요! ✨'}
         </button>
       </div>
     </PageLayout>

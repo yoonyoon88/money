@@ -114,6 +114,7 @@ export const docToMission = (docData: DocumentData, docId: string): Mission => {
     status: normalizedStatus,
     missionType: (docData.missionType || 'DAILY') as 'DAILY' | 'WEEKLY',
     memo: docData.memo || undefined,
+    photoUrl: docData.photoUrl || undefined,
     parentMemo: docData.parentMemo || undefined,
     childId: docData.childId || '',
     parentId: docData.parentId || '',
@@ -202,12 +203,13 @@ export const checkAndUpdateExpiredMission = (mission: Mission, now: Date | numbe
   if (
     mission.status === 'COMPLETED' ||
     mission.status === 'PARTIAL_APPROVED' ||
+    mission.status === 'FAILED' ||
     (mission.completedAt !== null && mission.completedAt !== undefined)
   ) {
-    debugWarn(`[MISSION SKIPPED - COMPLETED] ${mission.id}:`, {
+    debugWarn(`[MISSION SKIPPED - COMPLETED/FAILED] ${mission.id}:`, {
       missionId: mission.id,
       status: mission.status,
-      reason: 'COMPLETED 상태는 변경하지 않음',
+      reason: 'COMPLETED 또는 FAILED 상태는 변경하지 않음',
     });
     return mission;
   }
@@ -236,6 +238,10 @@ export const checkAndUpdateExpiredMission = (mission: Mission, now: Date | numbe
     });
     return mission;
   }
+
+  // retryRequestedBy가 설정되어 있지만 IN_PROGRESS 상태인 경우는 만료 체크 필요
+  // (이미 RETRY_REQUESTED 상태로 변경된 경우는 위에서 보호됨)
+  // IN_PROGRESS 상태는 만료 체크를 수행해야 함
 
   // ═══════════════════════════════════════════════════════════════════
   // [수정 요구 3] 처리 불가 상태 로그
@@ -321,7 +327,7 @@ export const checkAndUpdateExpiredMissions = (missions: Mission[], now: Date | n
 // ============================================================================
 
 /**
- * 아이의 미션 목록 실시간 구독
+ * 아이의 미션 목록 실시간 구독 (최근 등록순)
  */
 export const subscribeChildMissions = (
   childId: string,
@@ -339,13 +345,17 @@ export const subscribeChildMissions = (
   );
 
   return onSnapshot(q, async (snapshot: QuerySnapshot<DocumentData>) => {
-    const missions = snapshot.docs.map((doc) => docToMission(doc.data(), doc.id));
-    
+    let missions = snapshot.docs.map((doc) => docToMission(doc.data(), doc.id));
+    // 최근 등록순 정렬 (createdAt 없으면 유지, 있으면 내림차순)
+    const hasCreatedAt = (m: Mission) => m.createdAt != null && m.createdAt !== '';
+    missions = [...missions].sort((a, b) => {
+      if (!hasCreatedAt(a) || !hasCreatedAt(b)) return 0;
+      return new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime();
+    });
     // 하루 지난 만료 미션 자동 삭제 (비동기, 에러는 무시)
     deleteExpiredMissionsOlderThanOneDay(childId).catch((error) => {
       debugWarn('[subscribeChildMissions] 만료 미션 자동 삭제 실패:', error);
     });
-    
     callback(missions);
   });
 };
@@ -383,7 +393,7 @@ export const subscribeSubmittedMissions = (
 };
 
 /**
- * 부모가 선택한 자녀의 미션 목록 실시간 구독
+ * 부모가 선택한 자녀의 미션 목록 실시간 구독 (최근 등록순)
  */
 export const subscribeParentChildMissions = (
   childId: string,
@@ -401,13 +411,17 @@ export const subscribeParentChildMissions = (
   );
 
   return onSnapshot(q, async (snapshot: QuerySnapshot<DocumentData>) => {
-    const missions = snapshot.docs.map((doc) => docToMission(doc.data(), doc.id));
-    
+    let missions = snapshot.docs.map((doc) => docToMission(doc.data(), doc.id));
+    // 최근 등록순 정렬 (createdAt 없으면 유지, 있으면 내림차순)
+    const hasCreatedAt = (m: Mission) => m.createdAt != null && m.createdAt !== '';
+    missions = [...missions].sort((a, b) => {
+      if (!hasCreatedAt(a) || !hasCreatedAt(b)) return 0;
+      return new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime();
+    });
     // 하루 지난 만료 미션 자동 삭제 (비동기, 에러는 무시)
     deleteExpiredMissionsOlderThanOneDay(childId).catch((error) => {
       debugWarn('[subscribeParentChildMissions] 만료 미션 자동 삭제 실패:', error);
     });
-    
     callback(missions);
   });
 };
@@ -920,14 +934,29 @@ export const requestRetry = async (missionId: string, childId: string): Promise<
     throw new Error('마감 시간을 확인할 수 없습니다.');
   }
 
-  // 아이가 재도전 요청한 경우: 상태를 RESUBMITTED로 변경하지 않고 IN_PROGRESS 유지
-  // 단지 재도전 요청 기록만 남김
-  await updateDoc(missionRef, {
-    // 상태는 변경하지 않음 (IN_PROGRESS 또는 SUBMITTED 유지)
+  // 아이가 재도전 요청한 경우: 상태를 RETRY_REQUESTED로 변경
+  // 부모 화면에서 재도전 요청 상태를 명확히 인식할 수 있도록 함
+  const updateData: any = {
+    status: 'RETRY_REQUESTED' as MissionStatus,
     requestedAt: serverTimestamp(),
     retryRequestedBy: 'child', // 아이가 요청했음을 표시
     updatedAt: serverTimestamp(),
+  };
+
+  console.log('[requestRetry] 상태 업데이트 시작', {
+    missionId,
+    oldStatus: missionData.status,
+    newStatus: 'RETRY_REQUESTED',
+    updateData
   });
+
+  try {
+    await updateDoc(missionRef, updateData);
+    console.log('[requestRetry] 상태 업데이트 완료', { missionId });
+  } catch (error) {
+    console.error('[requestRetry] 상태 업데이트 실패', { missionId, error });
+    throw error;
+  }
 };
 
 /**
@@ -1001,9 +1030,16 @@ export const deleteExpiredMissionsOlderThanOneDay = async (
 /**
  * 재도전 승인 (부모가 승인)
  * 
+ * 정책:
+ * - 기존 미션은 기록용으로 유지 (retryRequestStatus: "approved"로 업데이트)
+ * - 새로운 미션을 오늘 날짜 기준으로 복제 생성
+ * - 새 미션 상태는 "in_progress"
+ * - 완료/승인 관련 데이터는 제거
+ * - 마감기한은 "오늘 + 기존 미션 기간"
+ * 
  * @param missionId - 미션 ID
  * @param parentId - 부모 ID (권한 확인용)
- * @param newDueDate - 새로운 마감 시간 (ISO string, 선택사항 - 미지정 시 기존 마감 + 1일)
+ * @param newDueDate - 새로운 마감 시간 (ISO string, 선택사항)
  */
 export const approveRetry = async (
   missionId: string,
@@ -1033,36 +1069,111 @@ export const approveRetry = async (
     throw new Error('재도전 요청된 미션만 승인할 수 있습니다.');
   }
 
-  // 새로운 마감 시간 계산
-  let deadlineTimestamp: Timestamp;
-  if (newDueDate) {
-    // 부모가 새로 지정한 마감 시간 사용
-    deadlineTimestamp = Timestamp.fromDate(new Date(newDueDate));
+  // 기존 미션의 생성 시간과 마감 시간 계산
+  const now = new Date();
+  let originalCreated: Date;
+  let originalDue: Date;
+
+  // createdAt 파싱
+  const createdAtValue = missionData.createdAt;
+  if (createdAtValue instanceof Timestamp) {
+    originalCreated = createdAtValue.toDate();
+  } else if (typeof createdAtValue === 'string') {
+    originalCreated = new Date(createdAtValue);
   } else {
-    // 기존 마감 시간 + 1일
-    const existingDeadline = missionData.deadlineAt || missionData.dueAt || missionData.dueDate;
-    let existingDate: Date;
-    
-    if (existingDeadline instanceof Timestamp) {
-      existingDate = existingDeadline.toDate();
-    } else if (typeof existingDeadline === 'string') {
-      existingDate = new Date(existingDeadline);
-    } else {
-      existingDate = new Date(); // fallback
-    }
-    
-    // +1일
-    existingDate.setDate(existingDate.getDate() + 1);
-    deadlineTimestamp = Timestamp.fromDate(existingDate);
+    originalCreated = now; // fallback
   }
 
+  // dueAt/deadlineAt/dueDate 파싱
+  const deadlineValue = missionData.deadlineAt || missionData.dueAt || missionData.dueDate;
+  if (deadlineValue instanceof Timestamp) {
+    originalDue = deadlineValue.toDate();
+  } else if (typeof deadlineValue === 'string') {
+    originalDue = new Date(deadlineValue);
+  } else {
+    originalDue = new Date(now.getTime() + 24 * 60 * 60 * 1000); // fallback: +1일
+  }
+
+  // 기존 미션 기간 계산 (일수 기준 - "기간"을 날짜 단위로 해석)
+  // 예: 2/28 ~ 3/1 (23:59) => 2일
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const endOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 0, 0);
+
+  const originalCreatedDay = startOfDay(originalCreated);
+  const originalDueDay = startOfDay(originalDue);
+  const durationDays = Math.max(
+    1,
+    Math.round((originalDueDay.getTime() - originalCreatedDay.getTime()) / MS_PER_DAY)
+  );
+
+  // 새로운 마감 시간 계산
+  let newDueDateObj: Date;
+  if (newDueDate) {
+    // 부모가 새로 지정한 마감 시간 사용
+    newDueDateObj = new Date(newDueDate);
+  } else {
+    // 오늘 + 기존 미션 기간(일수)
+    const todayStart = startOfDay(now);
+    const dueDay = new Date(todayStart.getTime() + durationDays * MS_PER_DAY);
+    newDueDateObj = endOfDay(dueDay);
+  }
+
+  const newDeadlineTimestamp = Timestamp.fromDate(newDueDateObj);
+  const nowTimestamp = Timestamp.fromDate(now);
+
+  // 1. 기존 미션 기록 업데이트 (기록용으로 유지)
   await updateDoc(missionRef, {
     status: 'RETRY_APPROVED' as MissionStatus,
-    deadlineAt: deadlineTimestamp,
-    dueAt: deadlineTimestamp,
-    dueDate: deadlineTimestamp,
+    retryRequestedBy: null,
+    retryRequestStatus: 'approved',
+    retryApprovedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+
+  // 2. 새 미션 생성 (오늘 날짜 기준)
+  const newMissionData: any = {
+    title: missionData.title,
+    description: missionData.description || '',
+    rewardPoint: missionData.rewardPoint || 0,
+    status: 'IN_PROGRESS' as MissionStatus,
+    childId: missionData.childId,
+    parentId: missionData.parentId,
+    missionType: missionData.missionType || 'DAILY',
+    isRepeat: missionData.isRepeat || false,
+    repeatDays: missionData.repeatDays || [],
+    isDeleted: false,
+    createdAt: nowTimestamp,
+    deadlineAt: newDeadlineTimestamp,
+    dueAt: newDeadlineTimestamp,
+    dueDate: newDeadlineTimestamp,
+    updatedAt: serverTimestamp(),
+    // 완료/승인 관련 데이터는 제거 (null로 설정)
+    completedAt: null,
+    approvedAt: null,
+    resultImageUrl: null,
+    resultComment: null,
+    memo: null,
+    submittedAt: null,
+    retryRequestStatus: null,
+    retryRequestedBy: null,
+    requestedAt: null,
+    retryApprovedAt: null,
+    retryRejectedAt: null,
+    expiredAt: null,
+    resultStatus: null,
+  };
+
+  // 반복 미션 관련 필드 (있는 경우만 복사)
+  if (missionData.repeatStartDate) {
+    newMissionData.repeatStartDate = missionData.repeatStartDate;
+  }
+  if (missionData.repeatEndDate) {
+    newMissionData.repeatEndDate = missionData.repeatEndDate;
+  }
+
+  const missionsRef = collection(db, 'missions');
+  await addDoc(missionsRef, newMissionData);
 };
 
 /**
@@ -1110,6 +1221,17 @@ export const requestRetryByParent = async (
   });
 };
 
+/**
+ * 재도전 거절 (부모가 거절)
+ * 
+ * 정책:
+ * - 기존 미션 상태를 "failed"로 변경
+ * - retryRequestStatus = "rejected"
+ * - 미션 종료 처리
+ * 
+ * @param missionId - 미션 ID
+ * @param parentId - 부모 ID (권한 확인용)
+ */
 export const rejectRetry = async (missionId: string, parentId: string): Promise<void> => {
   if (!db) {
     throw new Error('Firestore가 초기화되지 않았습니다.');
@@ -1135,7 +1257,39 @@ export const rejectRetry = async (missionId: string, parentId: string): Promise<
   }
 
   await updateDoc(missionRef, {
-    status: 'RETRY_REJECTED' as MissionStatus,
+    status: 'FAILED' as MissionStatus,
+    retryRequestStatus: 'rejected',
+    retryRejectedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+};
+
+// ============================================================================
+// 1회 마이그레이션: missions 문서에 createdAt 추가 (실행 후 버튼/호출 제거)
+// ============================================================================
+
+/**
+ * missions 컬렉션에서 createdAt이 없는 문서에 serverTimestamp()를 설정합니다.
+ * 설정 화면의 임시 버튼으로 1회 실행 후, 해당 버튼을 제거하세요.
+ */
+export const migrateCreatedAt = async (): Promise<void> => {
+  if (!db) {
+    alert('Firestore가 초기화되지 않았습니다.');
+    return;
+  }
+
+  const snapshot = await getDocs(collection(db, 'missions'));
+
+  for (const document of snapshot.docs) {
+    const data = document.data();
+
+    if (!data.createdAt) {
+      await updateDoc(doc(db, 'missions', document.id), {
+        createdAt: serverTimestamp(),
+      });
+      console.log('updated:', document.id);
+    }
+  }
+
+  alert('createdAt 마이그레이션 완료');
 };
