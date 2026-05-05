@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useEffect, useRef } from 'react';
 import { Mission, User, MissionStatus, MissionType } from '../types';
 import { auth, db } from '../firebase/config';
 import { subscribeUser, getUser } from '../firebase/users';
@@ -6,6 +6,16 @@ import { subscribeChildMissions, subscribeSubmittedMissions, subscribeParentChil
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { canSubmitMission, canApproveMission, canRejectMission } from '../utils/permissions';
 import { initialUser, initialMissions, initialParentUser } from '../data/mockData';
+import {
+  requestNotificationPermission,
+  migrateNotificationsIfNeeded,
+  ensureRemindersScheduled,
+  initPermissionChangeListener,
+  notifyNewMission,
+  notifyMissionSubmitted,
+  notifyMissionApproved,
+  notifyMissionRejected,
+} from '../services/notificationService';
 
 // ============================================================================
 // 타입 정의
@@ -90,6 +100,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // 내부 상태: 임시 로그인 모드 플래그
   const [isTempLogin, setIsTempLogin] = useState<boolean>(false);
 
+  // 알림 중복 방지용: 이전 미션 상태 스냅샷
+  const prevMissionStatusRef = useRef<Map<string, string>>(new Map());
+  // 첫 스냅샷 여부 (초기 로드 시 알림 방지)
+  const isFirstMissionsLoad = useRef<boolean>(true);
+
   // localStorage와 연동된 selectedChildId 관리
   const setSelectedChildId = (childId: string | null) => {
     setSelectedChildIdState(childId);
@@ -148,7 +163,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       // 역할 선택은 RoleSelection 화면에서만 결정됨
       setSelectedChildIdState(null);
       localStorage.removeItem('defaultChildId');
-      
+
       if (user.role === 'CHILD') {
         // 아이는 PIN 검증 없이 바로 접근 가능
         setIsParentVerified(true);
@@ -160,7 +175,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       localStorage.removeItem('defaultChildId');
       setIsParentVerified(false);
     }
-  }, [user]);
+
+    // 유저가 바뀌면 미션 스냅샷 초기화 (이전 유저 미션으로 알림 방지)
+    prevMissionStatusRef.current = new Map();
+    isFirstMissionsLoad.current = true;
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ==========================================================================
   // 인증(Auth) 관리
@@ -454,19 +473,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return;
     }
 
+    // race condition 방어: 이 effect 실행 사이클이 유효한지 추적
+    // selectedChildId가 빠르게 바뀔 때 이전 구독 콜백이 setMissions를 호출하는 것을 막음
+    let isCurrentSubscription = true;
     let unsubscribe: (() => void) | undefined;
 
     if (user.role === 'CHILD') {
       // 아이: 자신의 미션만 구독
       unsubscribe = subscribeChildMissions(user.id, (missionsData) => {
-        setMissions(missionsData);
+        if (isCurrentSubscription) setMissions(missionsData);
       });
     } else if (user.role === 'PARENT') {
       // 부모: selectedChildId에 따라 구독 변경
       if (selectedChildId) {
         // 선택된 자녀의 모든 미션 구독 (부모 홈 화면용)
         unsubscribe = subscribeParentChildMissions(selectedChildId, (missionsData) => {
-          setMissions(missionsData);
+          if (isCurrentSubscription) setMissions(missionsData);
         });
       } else {
         // 제출된 미션만 구독 (승인 화면용)
@@ -474,7 +496,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           user.id,
           user.childrenIds || [],
           (missionsData) => {
-            setMissions(missionsData);
+            if (isCurrentSubscription) setMissions(missionsData);
           }
         );
       }
@@ -483,6 +505,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
 
     return () => {
+      isCurrentSubscription = false; // 이전 사이클 콜백이 setMissions 호출하지 못하도록 차단
       if (unsubscribe) {
         unsubscribe();
       }
@@ -533,22 +556,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       // 해석된 상태가 제출 가능한지 확인
       const isSubmittableStatus = SUBMITTABLE_STATUSES.includes(interpretedStatus as any);
 
-      // 권한 체크 - currentChildId가 있으면 childId 기준으로 체크
-      if (currentChildId !== null && currentChildId !== undefined) {
+      // 권한 체크 - currentChildId가 있으면(null/undefined/빈 문자열 제외) childId 기준으로 체크
+      if (currentChildId) {
         if (mission.childId !== currentChildId) {
           throw new Error('이 미션은 지금 제출할 수 없어요');
         }
-        // 제출 가능한 상태인지 확인
         if (!isSubmittableStatus) {
           throw new Error('이미 제출했거나 제출할 수 없는 미션이에요');
         }
       } else {
         // currentChildId가 없으면 기존 로직 사용 (하위 호환성)
-        // 제출 가능한 상태인지 확인
         if (!isSubmittableStatus) {
           throw new Error('이미 제출했거나 제출할 수 없는 미션이에요');
         }
-        // 권한 체크
         if (mission.childId !== user.id) {
           throw new Error('이 미션은 지금 제출할 수 없어요');
         }
@@ -610,27 +630,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       // 해석된 상태가 제출 가능한지 확인
       const isSubmittableStatus = SUBMITTABLE_STATUSES.includes(interpretedStatus as any);
 
-      // 권한 체크 - currentChildId가 있으면 childId 기준으로만 체크
-      if (currentChildId !== null && currentChildId !== undefined) {
-        // currentChildId가 없는 경우에만 예외 처리
-        if (!currentChildId) {
-          throw new Error('자녀 정보를 찾을 수 없습니다.');
-        }
-        // mission.childId === currentChildId 기준으로만 판단
+      // 권한 체크 - currentChildId가 있으면(null/undefined/빈 문자열 제외) childId 기준으로만 체크
+      if (currentChildId) {
         if (mission.childId !== currentChildId) {
           throw new Error('이 미션은 지금 제출할 수 없어요');
         }
-        // 미션 상태 체크 - 제출 가능한 상태인지 확인
         if (!isSubmittableStatus) {
           throw new Error('이미 제출했거나 제출할 수 없는 미션이에요');
         }
       } else {
         // currentChildId가 없으면 기존 로직 사용 (하위 호환성)
-        // 제출 가능한 상태인지 확인
         if (!isSubmittableStatus) {
           throw new Error('이미 제출했거나 제출할 수 없는 미션이에요');
         }
-        // 권한 체크
         if (mission.childId !== user.id) {
           throw new Error('이 미션은 지금 제출할 수 없어요');
         }
@@ -1104,6 +1116,70 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setMissions(initialMissions);
     setLoading(false);
   };
+
+  // ==========================================================================
+  // 알림 권한 요청 + 기존 사용자 알림 마이그레이션 (앱 시작 시 1회)
+  // - 권한 허용 시: migration key 없으면 전체 취소 후 재등록
+  // - 이후 권한 변경(denied→granted) 감지: App 포그라운드 복귀 시 확인
+  // ==========================================================================
+  useEffect(() => {
+    // 권한 변경 리스너 등록 (denied→granted 전환 시 자동 정상화)
+    initPermissionChangeListener();
+
+    // 앱 시작 시 권한 요청 → 마이그레이션 → 리마인더 확인 (순차 실행, 레이스 컨디션 방지)
+    requestNotificationPermission().then(async (granted) => {
+      if (granted) {
+        await migrateNotificationsIfNeeded();
+        await ensureRemindersScheduled();
+      }
+    });
+  }, []); // mount 시 1회만
+
+  // ==========================================================================
+  // Firestore onSnapshot 변경 감지 → 로컬 알림 트리거
+  // ==========================================================================
+  useEffect(() => {
+    if (!user || !deviceRole) return;
+
+    // 첫 스냅샷은 초기 상태 저장만 하고 알림 발송하지 않음
+    if (isFirstMissionsLoad.current) {
+      prevMissionStatusRef.current = new Map(missions.map((m) => [m.id, m.status]));
+      isFirstMissionsLoad.current = false;
+      return;
+    }
+
+    const prevMap = prevMissionStatusRef.current;
+
+    for (const mission of missions) {
+      const prevStatus = prevMap.get(mission.id);
+      const currStatus = mission.status;
+
+      if (deviceRole === 'CHILD') {
+        // 1. 새 미션(TODO) 도착 – 이전에 없던 미션이 TODO로 생성
+        if (!prevStatus && currStatus === 'TODO') {
+          notifyNewMission(mission.id, mission.title);
+        }
+        // 3. 미션 승인
+        if (prevStatus && prevStatus !== 'APPROVED' && currStatus === 'APPROVED') {
+          notifyMissionApproved(mission.id, mission.title, mission.rewardPoint);
+        }
+        // 4. 미션 반려
+        if (prevStatus && prevStatus !== 'REJECTED' && currStatus === 'REJECTED') {
+          notifyMissionRejected(mission.id, mission.title);
+        }
+      } else if (deviceRole === 'PARENT') {
+        // 2. 아이가 미션 제출 (SUBMITTED / PENDING_REVIEW)
+        const isNowSubmitted = currStatus === 'SUBMITTED' || currStatus === 'PENDING_REVIEW';
+        const wasSubmitted = prevStatus === 'SUBMITTED' || prevStatus === 'PENDING_REVIEW';
+        if (prevStatus && !wasSubmitted && isNowSubmitted) {
+          notifyMissionSubmitted(mission.id, mission.title);
+        }
+      }
+    }
+
+    // 현재 상태를 다음 비교를 위해 저장
+    prevMissionStatusRef.current = new Map(missions.map((m) => [m.id, m.status]));
+  }, [missions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ==========================================================================
   // 최종 안전장치: 무한 로딩 방지

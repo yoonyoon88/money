@@ -4,7 +4,7 @@
  */
 export function isPromoActive(): boolean {
   // 기존 프로모션 로직 유지 (필요 시 날짜만 갱신)
-  const promoEnd = new Date('2025-05-31T23:59:59');
+  const promoEnd = new Date('2026-12-31T23:59:59');
   const now = new Date();
   return now <= promoEnd;
 }

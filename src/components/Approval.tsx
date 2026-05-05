@@ -7,6 +7,7 @@ import Character from './Character';
 import Toast from './Toast';
 import PageLayout from './PageLayout';
 import { NORMAL_HEADER_HEIGHT } from '../constants/layout';
+import PhotoViewer from './PhotoViewer';
 
 /**
  * 부모 전용 승인 화면
@@ -27,6 +28,8 @@ const Approval: React.FC = () => {
   const isNavigatingRef = React.useRef(false);
   // Toast 메시지 상태
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  // 전체화면 사진 뷰어
+  const [photoViewerUrl, setPhotoViewerUrl] = useState<string | null>(null);
   // 첫 번째 미션의 아이 이름 (헤더 타이틀용)
   const [headerChildName, setHeaderChildName] = useState<string | null>(null);
   // 재도전 확인 모달 상태
@@ -46,6 +49,11 @@ const Approval: React.FC = () => {
       return;
     }
     isNavigatingRef.current = true;
+
+    // 컴포넌트가 언마운트되지 않는 경우를 대비해 1초 후 플래그 초기화
+    setTimeout(() => {
+      isNavigatingRef.current = false;
+    }, 1000);
 
     if (currentChildId) {
       // 해당 자녀 홈으로 이동 (replace로 히스토리 스택에 쌓이지 않음)
@@ -263,7 +271,7 @@ const Approval: React.FC = () => {
         </h1>
       </header>
 
-      <div className="mx-auto px-4 pb-28">
+      <div className="mx-auto w-full px-4 pb-28">
         {/* 처리 중일 때는 Empty State를 표시하지 않고 로딩 상태 표시 */}
         {processingMissionId !== null ? (
           <div className="text-center py-12">
@@ -282,7 +290,7 @@ const Approval: React.FC = () => {
           </div>
         ) : (
           submittedMissions.map(mission => (
-            <div key={mission.id} className="bg-white rounded-2xl shadow-sm p-5 mb-4 border border-gray-100">
+            <div key={mission.id} className="w-full bg-white rounded-2xl shadow-sm p-5 sm:p-6 mb-4 border border-gray-100">
               {/* 미션 제목 & 포인트 */}
                 <div className="flex items-center gap-2 mb-2">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm ${
@@ -290,15 +298,15 @@ const Approval: React.FC = () => {
                   }`}>
                     {mission.missionType === 'DAILY' ? '일' : '주'}
                   </div>
-                <h2 className="text-base font-semibold text-gray-800">{mission.title}</h2>
+                <h2 className="text-lg font-semibold text-gray-800 leading-snug">{mission.title}</h2>
               </div>
-              <p className="text-green-500 font-semibold text-sm">+{mission.rewardPoint} 포인트</p>
+              <p className="text-green-500 font-semibold text-base">+{mission.rewardPoint} 포인트</p>
 
               {/* 아이가 작성한 메모 */}
               {mission.memo && (
                 <div className="mt-4">
                   <p className="text-sm text-gray-500 mb-2">아이가 작성한 메모</p>
-                  <div className="mt-2 bg-gray-50 rounded-xl p-3 text-sm text-gray-700">
+                  <div className="mt-2 bg-gray-50 rounded-xl p-4 text-base leading-relaxed text-gray-700">
                     {mission.memo}
                   </div>
                 </div>
@@ -307,12 +315,21 @@ const Approval: React.FC = () => {
               {/* 아이가 올린 사진 */}
               {mission.photoUrl && (
                 <div className="mt-4">
-                  <p className="text-sm text-gray-500 mb-2">📷 아이가 올린 사진</p>
-                  <img
-                    src={mission.photoUrl}
-                    alt="미션 인증 사진"
-                    className="w-full rounded-xl object-cover max-h-64 border border-gray-200"
-                  />
+                  <button
+                    type="button"
+                    onClick={() => setPhotoViewerUrl(mission.photoUrl!)}
+                    className="block w-full overflow-hidden rounded-2xl border border-gray-100 bg-gray-50 text-left shadow-sm transition-colors hover:bg-gray-100"
+                  >
+                    <img
+                      src={mission.photoUrl}
+                      alt="아이가 제출한 미션 사진"
+                      className="h-56 w-full object-cover"
+                    />
+                    <span className="flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700">
+                      <span>📷 사진 크게 보기</span>
+                      <span className="text-gray-400">탭해서 확인</span>
+                    </span>
+                  </button>
                 </div>
               )}
             </div>
@@ -397,9 +414,13 @@ const Approval: React.FC = () => {
           onClose={() => setToastMessage(null)}
         />
       )}
+
+      {/* 사진 전체화면 뷰어 */}
+      {photoViewerUrl && (
+        <PhotoViewer url={photoViewerUrl} onClose={() => setPhotoViewerUrl(null)} />
+      )}
     </PageLayout>
   );
 };
 
 export default Approval;
-

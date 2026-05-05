@@ -261,15 +261,15 @@ const ParentDashboard: React.FC = () => {
   }
 
   return (
-    <PageLayout headerHeight={0} noSafeArea className="pb-[88px]">
+    <PageLayout headerHeight={0} noSafeArea className="pb-[84px]">
       {/* 1️⃣ 상단 기본 헤더: px-4 pt-6 pb-4, flex justify-between items-center */}
-      <header className="px-4 pt-6 pb-4">
-        <div className="h-[56px] flex justify-between items-center">
-          <div className="flex items-center gap-2 min-w-0">
+      <header className="px-4 pt-4 pb-2.5">
+        <div className="flex min-h-[44px] items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
           <span className="text-lg font-semibold text-gray-800 truncate">{user?.name} 님</span>
           {renderPlanBadge(subscriptionPlan)}
         </div>
-            <div className="flex items-center gap-1.5 flex-shrink-0">
+            <div className="flex flex-shrink-0 items-center gap-1.5">
               {showRoleSwitchGuide && (
             <div className="absolute left-4 right-4 top-[72px] z-30 md:left-auto md:right-20 md:top-16">
                   <div className="bg-white rounded-xl shadow-2xl border-2 border-green-200 p-4 min-w-[240px] max-w-[280px]">
@@ -310,7 +310,7 @@ const ParentDashboard: React.FC = () => {
               )}
           <button
             onClick={handleRoleSwitch}
-            className={`px-3 py-1.5 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 transition-colors whitespace-nowrap ${
+            className={`h-9 rounded-lg bg-green-500 px-3 text-sm font-medium text-white transition-colors hover:bg-green-600 whitespace-nowrap ${
               showRoleSwitchGuide ? 'ring-4 ring-green-300 ring-offset-2 animate-pulse' : ''
             }`}
           >
@@ -319,7 +319,7 @@ const ParentDashboard: React.FC = () => {
           {user?.childrenIds && user.childrenIds.length > 0 && (
             <button
               onClick={() => setShowUsageGuide(true)}
-              className="px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors whitespace-nowrap"
+              className="h-9 rounded-lg border border-gray-300 px-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 whitespace-nowrap"
             >
               사용법
             </button>
@@ -329,7 +329,7 @@ const ParentDashboard: React.FC = () => {
       </header>
 
       {isPromoActive() && (
-        <div className="text-xs text-indigo-600 font-medium mb-2">
+        <div className="mb-1.5 text-xs font-medium text-indigo-600">
           5월까지 무료 체험 중
       </div>
       )}
@@ -362,25 +362,25 @@ const ParentDashboard: React.FC = () => {
         <>
           {/* 안내 문구: 자녀가 1명 이상일 때만 표시 */}
           {childrenInfo.length > 0 && (
-            <div className="mt-4 px-4 py-3 rounded-xl bg-indigo-50 text-indigo-700 text-sm flex items-center gap-2">
+            <div className="mt-2 px-4 py-2 rounded-xl bg-indigo-50 text-sm text-indigo-700 flex items-center gap-2">
               <span>✨</span>
               <span>아이에게 미션을 주려면 카드를 눌러보세요 😊</span>
                       </div>
           )}
-          <div className="px-4 mt-4">
-            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5">
+          <div className="mt-2.5 px-4">
+            <div className="bg-white rounded-[28px] shadow-sm border border-gray-100 p-4">
               {loading ? (
                 <div className="py-8 text-center text-gray-500 text-sm">
                   자녀 정보를 불러오는 중...
                     </div>
               ) : (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {/* 자주 쓰는 미션 관리 버튼 */}
                 {user?.role === 'PARENT' && (
                   <button
                     type="button"
                     onClick={() => setShowTemplateSheet(true)}
-                    className="w-full flex items-center justify-between px-4 py-2 rounded-xl bg-amber-50 border border-amber-100 text-xs text-amber-800 hover:bg-amber-100 transition-colors"
+                    className="w-full flex items-center justify-between rounded-xl border border-amber-100 bg-amber-50/70 px-4 py-1.5 text-xs text-amber-800 transition-colors hover:bg-amber-100/80"
                   >
                     <span className="flex items-center gap-2">
                       <span>⭐</span>
@@ -424,7 +424,7 @@ const ParentDashboard: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleAddChild}
-                    className="w-full py-3 rounded-xl border-2 border-dashed border-indigo-300 flex items-center justify-center gap-2 text-indigo-600 text-sm font-semibold mt-3 transition-colors hover:bg-indigo-50"
+                    className="mt-1 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-indigo-300 py-2.5 text-sm font-semibold text-indigo-600 transition-colors hover:bg-indigo-50"
                   >
                     + 자녀 추가하기
                   </button>

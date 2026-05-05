@@ -13,7 +13,7 @@ import Character from '../components/Character';
 const ChildSelectPage: React.FC = () => {
   const { user, setDeviceRole, setSelectedChildId } = useApp();
   const navigate = useNavigate();
-  const [children, setChildren] = useState<Array<{ id: string; name: string }>>([]);
+  const [children, setChildren] = useState<Array<{ id: string; name: string; gender?: 'male' | 'female' }>>([]);
   const [loading, setLoading] = useState(true);
 
   // 로그인되지 않은 경우 (ProtectedRoute에서 이미 처리되지만 방어적)
@@ -119,7 +119,7 @@ const ChildSelectPage: React.FC = () => {
                 onClick={() => handleSelectChild(child.id)}
                 className="w-full py-4 px-5 bg-white rounded-2xl border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50/50 transition-all text-left flex items-center gap-4 active:scale-[0.98]"
               >
-                <Character size="medium" />
+                <Character size="medium" gender={child.gender} />
                 <div className="flex-1 min-w-0">
                   <h3 className="text-lg font-bold text-gray-800 truncate">{child.name}</h3>
                   <p className="text-sm text-gray-500 mt-0.5">탭하여 이 아이로 로그인</p>

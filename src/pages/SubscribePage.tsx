@@ -1,9 +1,8 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { getSubscriptionPlan } from '../types';
 import { hasPremiumAccess } from '../utils/subscription';
-import { updateUserSubscription } from '../firebase/users';
 
 const FREE_BENEFITS = [
   '자녀 1명 관리',
@@ -21,23 +20,11 @@ const PREMIUM_BENEFITS = [
 const SubscribePage: React.FC = () => {
   const { user } = useApp();
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
-
   const isPremium = hasPremiumAccess(getSubscriptionPlan(user));
 
-  const handleStartPremium = async () => {
+  const handleStartPremium = () => {
     if (!user?.id || isPremium) return;
-    setLoading(true);
-    try {
-      await updateUserSubscription(user.id, 'premium');
-      alert('프리미엄으로 변경되었습니다.');
-      navigate(-1);
-    } catch (e) {
-      console.error(e);
-      alert('처리에 실패했습니다. 다시 시도해주세요.');
-    } finally {
-      setLoading(false);
-    }
+    alert('구독 기능은 준비 중입니다.');
   };
 
   return (
@@ -116,10 +103,9 @@ const SubscribePage: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleStartPremium}
-                  disabled={loading}
                   className="w-full bg-indigo-600 text-white rounded-xl py-3 font-semibold text-sm hover:bg-indigo-700 disabled:opacity-60 transition-colors"
                 >
-                  {loading ? '처리 중...' : '구독하기'}
+                  구독 준비 중
                 </button>
               )}
             </div>

@@ -6,5 +6,5 @@
  *   이 파일과 동일하게 올려주면 사용자에게 "새 버전이 있어요" 배너가 표시됩니다.
  * - Capacitor 빌드 시 네이티브에서 주입하려면 이 파일을 빌드 스크립트로 교체하면 됩니다.
  */
-export const CURRENT_VERSION_CODE = 29;
-export const CURRENT_VERSION_NAME = '1.0.0';
+export const CURRENT_VERSION_CODE = 41;
+export const CURRENT_VERSION_NAME = '1.1.0';

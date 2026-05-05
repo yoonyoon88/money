@@ -2,12 +2,136 @@ import React, { useEffect, useState } from 'react';
 import { getLatestVersionInfo, isUpdateAvailable } from '../firebase/remoteConfig';
 import { CURRENT_VERSION_CODE } from '../constants/version';
 
-const STORAGE_KEY_DISMISSED = 'app_update_dismissed_version_code';
+const PLAY_STORE_URL = 'market://details?id=com.yondone.app';
 
+// "나중에" 눌렀을 때 억제 만료 타임스탬프 저장 키
+const SNOOZE_UNTIL_KEY = 'app_update_snooze_until';
+
+function openPlayStore() {
+  window.open(PLAY_STORE_URL, '_system');
+}
+
+function isSnoozed(): boolean {
+  const until = Number(localStorage.getItem(SNOOZE_UNTIL_KEY) || '0');
+  return Date.now() < until;
+}
+
+function snoozeForOneDay() {
+  const until = Date.now() + 24 * 60 * 60 * 1000;
+  localStorage.setItem(SNOOZE_UNTIL_KEY, String(until));
+}
+
+// ─────────────────────────────────────────────
+// 강제 업데이트 팝업 (닫기 버튼 없음)
+// ─────────────────────────────────────────────
+function ForceUpdateModal({ versionName }: { versionName: string }) {
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/60 z-[200]" />
+      <div className="fixed inset-0 z-[201] flex items-center justify-center px-6">
+        <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden">
+          {/* 헤더 */}
+          <div className="bg-orange-500 px-6 py-5 text-center">
+            <div className="text-4xl mb-2">🚀</div>
+            <p className="text-white font-bold text-lg">업데이트가 필요해요</p>
+          </div>
+
+          {/* 본문 */}
+          <div className="px-6 py-5 text-center">
+            <p className="text-gray-700 text-sm leading-relaxed">
+              더 나은 서비스를 위해 앱을 최신 버전으로
+              업데이트해 주세요.
+            </p>
+            {versionName && (
+              <p className="text-orange-500 font-semibold text-sm mt-2">최신 버전 v{versionName}</p>
+            )}
+          </div>
+
+          {/* 버튼 */}
+          <div className="px-6 pb-6">
+            <button
+              type="button"
+              onClick={openPlayStore}
+              className="w-full py-3.5 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-2xl text-sm transition-colors active:scale-95"
+            >
+              지금 업데이트
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────
+// 선택 업데이트 팝업 (나중에 / 지금 업데이트)
+// ─────────────────────────────────────────────
+function OptionalUpdateModal({
+  versionName,
+  onDismiss,
+}: {
+  versionName: string;
+  onDismiss: () => void;
+}) {
+  const handleLater = () => {
+    snoozeForOneDay();
+    onDismiss();
+  };
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/50 z-[200]" onClick={handleLater} />
+      <div className="fixed inset-0 z-[201] flex items-center justify-center px-6">
+        <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden">
+          {/* 헤더 */}
+          <div className="bg-blue-500 px-6 py-5 text-center">
+            <div className="text-4xl mb-2">✨</div>
+            <p className="text-white font-bold text-lg">새 버전이 있어요</p>
+          </div>
+
+          {/* 본문 */}
+          <div className="px-6 py-5 text-center">
+            <p className="text-gray-700 text-sm leading-relaxed">
+              더 좋아진 기능과 개선사항이 준비됐어요.
+              지금 업데이트해 보세요!
+            </p>
+            {versionName && (
+              <p className="text-blue-500 font-semibold text-sm mt-2">최신 버전 v{versionName}</p>
+            )}
+          </div>
+
+          {/* 버튼 */}
+          <div className="px-6 pb-6 flex gap-3">
+            <button
+              type="button"
+              onClick={handleLater}
+              className="flex-1 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-600 font-semibold rounded-2xl text-sm transition-colors"
+            >
+              나중에
+            </button>
+            <button
+              type="button"
+              onClick={openPlayStore}
+              className="flex-1 py-3.5 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-2xl text-sm transition-colors active:scale-95"
+            >
+              지금 업데이트
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────
+// 메인 컴포넌트
+// ─────────────────────────────────────────────
 export default function UpdateNotice() {
-  const [show, setShow] = useState(false);
-  const [latestVersionName, setLatestVersionName] = useState<string | null>(null);
-  const [latestVersionCode, setLatestVersionCode] = useState<number>(0);
+  const [state, setState] = useState<{
+    show: boolean;
+    forceUpdate: boolean;
+    versionName: string;
+  }>({ show: false, forceUpdate: false, versionName: '' });
 
   useEffect(() => {
     let cancelled = false;
@@ -16,62 +140,31 @@ export default function UpdateNotice() {
       try {
         const latest = await getLatestVersionInfo();
         if (cancelled) return;
-        const dismissed = Number(localStorage.getItem(STORAGE_KEY_DISMISSED) || '0');
-        if (latest.versionCode <= dismissed) return;
         if (!isUpdateAvailable(CURRENT_VERSION_CODE, latest.versionCode)) return;
-        setLatestVersionName(latest.versionName);
-        setLatestVersionCode(latest.versionCode);
-        setShow(true);
+
+        // 선택 업데이트이고 오늘 이미 "나중에" 눌렀으면 스킵
+        if (!latest.forceUpdate && isSnoozed()) return;
+
+        setState({ show: true, forceUpdate: latest.forceUpdate, versionName: latest.versionName });
       } catch {
-        // 무시
+        // 네트워크 오류 등 → 무시
       }
     }
 
     check();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
-  const handleUpdate = () => {
-    window.location.reload();
-  };
+  if (!state.show) return null;
 
-  const handleDismiss = () => {
-    if (latestVersionCode > 0) {
-      localStorage.setItem(STORAGE_KEY_DISMISSED, String(latestVersionCode));
-    }
-    setShow(false);
-  };
-
-  if (!show) return null;
+  if (state.forceUpdate) {
+    return <ForceUpdateModal versionName={state.versionName} />;
+  }
 
   return (
-    <div className="fixed top-0 left-0 right-0 z-[100] mx-auto px-4 pt-[calc(0.5rem+env(safe-area-inset-top))] pb-2">
-      <div className="bg-blue-600 text-white rounded-xl shadow-lg px-4 py-3 flex items-center gap-3">
-        <div className="flex-1 min-w-0">
-          <p className="font-semibold text-sm">새 버전이 있어요</p>
-          <p className="text-blue-100 text-xs mt-0.5">
-            {latestVersionName ? `v${latestVersionName}로 업데이트할 수 있어요` : '최신 버전으로 업데이트해 주세요'}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <button
-            type="button"
-            onClick={handleDismiss}
-            className="px-3 py-1.5 text-blue-200 hover:text-white text-xs font-medium transition-colors"
-          >
-            나중에
-          </button>
-          <button
-            type="button"
-            onClick={handleUpdate}
-            className="px-4 py-2 bg-white text-blue-600 rounded-lg text-sm font-semibold hover:bg-blue-50 active:bg-blue-100 transition-colors"
-          >
-            업데이트
-          </button>
-        </div>
-      </div>
-    </div>
+    <OptionalUpdateModal
+      versionName={state.versionName}
+      onDismiss={() => setState((s) => ({ ...s, show: false }))}
+    />
   );
 }

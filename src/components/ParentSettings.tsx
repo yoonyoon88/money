@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signOut } from 'firebase/auth';
+import { Capacitor } from '@capacitor/core';
 import { useApp } from '../context/AppContext';
 import { auth } from '../firebase/config';
 import { getSubscriptionPlan } from '../types';
@@ -9,6 +10,13 @@ import { PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '../constants/policyUrl
 import PinResetModal from './PinResetModal';
 import { CURRENT_VERSION_NAME } from '../constants/version';
 import { ENABLE_SUBSCRIPTION } from '../subscription/config';
+import {
+  cancelAllReminders,
+  getNotificationSettings,
+  scheduleAllReminders,
+  updateNotificationSetting,
+  type NotificationSettings,
+} from '../services/notificationService';
 
 type SubscriptionPlan = 'free' | 'premium';
 
@@ -17,26 +25,58 @@ function getPlanUI(plan: SubscriptionPlan) {
     return {
       planLabel: '프리미엄',
       badgeText: '이용 중',
-      badgeClass: 'bg-amber-100 text-amber-700 text-xs px-3 py-1 rounded-full',
+      badgeClass: 'rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-700',
     };
   }
+
   return {
     planLabel: '무료',
     badgeText: '무료',
-    badgeClass: 'bg-gray-100 text-gray-600 text-xs px-3 py-1 rounded-full',
+    badgeClass: 'rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-600',
   };
 }
+
+const reminderToggleItems: Array<{
+  key: keyof NotificationSettings;
+  label: string;
+  time: string;
+}> = [
+  { key: 'morning', label: '아침', time: '09:00' },
+  { key: 'lunch', label: '점심', time: '12:00' },
+  { key: 'dinner', label: '저녁', time: '19:00' },
+];
 
 const ParentSettings: React.FC = () => {
   const { user } = useApp();
   const navigate = useNavigate();
   const [showPinResetModal, setShowPinResetModal] = useState(false);
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(
+    () => getNotificationSettings()
+  );
 
   const displayName = auth.currentUser?.displayName ?? user?.name ?? '-';
   const email = auth.currentUser?.email ?? user?.email ?? '-';
-
   const subscriptionPlan = getSubscriptionPlan(user);
   const planUI = getPlanUI(hasPremiumAccess(subscriptionPlan) ? 'premium' : subscriptionPlan);
+
+  const handleToggleReminder = async (
+    key: keyof NotificationSettings,
+    enabled: boolean
+  ) => {
+    const nextSettings = updateNotificationSetting(key, enabled);
+    setNotificationSettings(nextSettings);
+
+    if (!Capacitor.isNativePlatform()) {
+      return;
+    }
+
+    if (Object.values(nextSettings).some(Boolean)) {
+      await scheduleAllReminders(nextSettings);
+      return;
+    }
+
+    await cancelAllReminders();
+  };
 
   const handleLogout = async () => {
     try {
@@ -48,46 +88,106 @@ const ParentSettings: React.FC = () => {
   };
 
   return (
-    <div className="mx-auto min-h-screen w-full overflow-y-auto bg-[#FFFEF9] px-5 pt-4 pb-24">
-      {/* 상단 제목 */}
-      <h1 className="text-lg font-semibold text-center py-4 text-gray-800">설정</h1>
+    <div className="mx-auto w-full bg-[#FFFEF9] px-4 pb-[72px] pt-1.5">
+      <h1 className="py-1.5 text-center text-base font-semibold text-gray-800">설정</h1>
 
-      {/* 1️⃣ 프로필 카드 */}
-      <div className="bg-white rounded-2xl shadow-sm p-4 flex items-center gap-3">
-        <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center text-sm font-semibold text-gray-600">
+      <div className="flex items-center gap-2 rounded-2xl bg-white px-3 py-2 shadow-sm">
+        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-200 text-xs font-semibold text-gray-600">
           {(displayName !== '-' ? displayName[0] : '?').toUpperCase()}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="font-medium text-gray-800 truncate">{displayName}</p>
-          <p className="text-sm text-gray-500 truncate">{email}</p>
+          <p className="truncate text-sm font-medium leading-tight text-gray-800">{displayName}</p>
+          <p className="mt-0.5 truncate text-[11px] leading-tight text-gray-500">{email}</p>
         </div>
       </div>
 
-      {/* 2️⃣ 보안 설정 카드 */}
-      <div className="bg-white rounded-2xl shadow-sm p-4 mt-4">
-        <p className="text-sm text-gray-500 mb-3">보안</p>
+      <div className="mt-2 overflow-hidden rounded-2xl bg-white shadow-sm">
         <button
           type="button"
           onClick={() => setShowPinResetModal(true)}
-          className="w-full flex justify-between items-center py-2 text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"
+          className="flex w-full items-center justify-between px-3 py-2.5 text-gray-700 transition-colors hover:bg-gray-50"
         >
           <span className="text-sm">부모 PIN 변경</span>
-          <span className="text-gray-400 text-lg">›</span>
+          <span className="text-base text-gray-400">›</span>
         </button>
       </div>
 
-      {/* 3️⃣ 서비스 메뉴 카드 */}
-      <div className="bg-white rounded-2xl shadow-sm mt-4 overflow-hidden">
-        {/* 개발자 후원하기 항목은 현재 숨김 처리 */}
+      {ENABLE_SUBSCRIPTION && (
+        <div className="mt-2 rounded-2xl bg-white px-3 py-2.5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] text-gray-500">현재 플랜</p>
+              <p className="text-sm font-semibold text-gray-800">{planUI.planLabel}</p>
+            </div>
+            <span className={planUI.badgeClass}>{planUI.badgeText}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate('/parent/subscription')}
+            className="mt-2 w-full rounded-xl bg-gray-100 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-200"
+          >
+            결제 관리
+          </button>
+        </div>
+      )}
+
+      <div className="mt-2 overflow-hidden rounded-2xl bg-white shadow-sm">
+        <div className="border-b border-gray-100 px-3 py-1.5">
+          <p className="text-sm font-medium text-gray-800">알림 설정</p>
+        </div>
+        {reminderToggleItems.map((item, index) => {
+          const enabled = notificationSettings[item.key];
+
+          return (
+            <div
+              key={item.key}
+              className={`flex items-center justify-between px-3 py-2 ${
+                index !== reminderToggleItems.length - 1 ? 'border-b border-gray-100' : ''
+              }`}
+            >
+              <p className="text-sm leading-none text-gray-800">
+                {item.label} <span className="text-gray-400">({item.time})</span>
+              </p>
+              <button
+                type="button"
+                onClick={() => handleToggleReminder(item.key, !enabled)}
+                className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors focus:outline-none ${
+                  enabled ? 'border-blue-500 bg-blue-500' : 'border-gray-300 bg-gray-200'
+                }`}
+                aria-label={`${item.label} 알림`}
+              >
+                <span
+                  className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform ${
+                    enabled ? 'translate-x-[18px]' : 'translate-x-[2px]'
+                  }`}
+                />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-2 overflow-hidden rounded-2xl border border-gray-100/70 bg-[#F8F9FB] shadow-sm">
+        <button
+          type="button"
+          onClick={() => window.open('market://details?id=com.yondone.app', '_system')}
+          className="flex w-full items-center justify-between border-b border-gray-100 px-3 py-2.5 text-left text-gray-700 transition-colors hover:bg-[#F2F4F7]"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-amber-500">★</span>
+            <span className="text-sm">앱 평가하기</span>
+          </div>
+          <span className="text-base text-gray-400">›</span>
+        </button>
         <button
           type="button"
           onClick={() =>
             navigate(`/policy?title=이용약관&url=${encodeURIComponent(TERMS_OF_SERVICE_URL)}`)
           }
-          className="w-full flex justify-between items-center px-4 py-3 border-b border-gray-100 text-gray-700 hover:bg-gray-50 transition-colors text-left"
+          className="flex w-full items-center justify-between border-b border-gray-100 px-3 py-2.5 text-left text-gray-700 transition-colors hover:bg-[#F2F4F7]"
         >
           <span className="text-sm">이용약관</span>
-          <span className="text-gray-400 text-lg">›</span>
+          <span className="text-base text-gray-400">›</span>
         </button>
         <button
           type="button"
@@ -96,26 +196,23 @@ const ParentSettings: React.FC = () => {
               `/policy?title=개인정보처리방침&url=${encodeURIComponent(PRIVACY_POLICY_URL)}`
             )
           }
-          className="w-full flex justify-between items-center px-4 py-3 text-gray-700 hover:bg-gray-50 transition-colors text-left"
+          className="flex w-full items-center justify-between px-3 py-2.5 text-left text-gray-700 transition-colors hover:bg-[#F2F4F7]"
         >
           <span className="text-sm">개인정보처리방침</span>
-          <span className="text-gray-400 text-lg">›</span>
+          <span className="text-base text-gray-400">›</span>
         </button>
       </div>
 
-      {/* 4️⃣ 앱 정보 */}
-      <div className="text-center text-sm text-gray-400 mt-4">앱 버전 v{CURRENT_VERSION_NAME}</div>
+      <div className="mt-1.5 text-center text-[11px] text-gray-400">앱 버전 v{CURRENT_VERSION_NAME}</div>
 
-      {/* 5️⃣ 로그아웃 버튼 */}
       <button
         type="button"
         onClick={handleLogout}
-        className="w-full mt-6 h-12 rounded-xl bg-red-500 text-white font-medium hover:bg-red-600 active:opacity-90 transition-colors"
+        className="mt-2.5 h-9 w-full rounded-xl bg-red-500 text-sm font-medium text-white transition-colors hover:bg-red-600 active:opacity-90"
       >
         로그아웃
       </button>
 
-      {/* PIN 재설정 모달 */}
       <PinResetModal
         isOpen={showPinResetModal}
         onSuccess={() => setShowPinResetModal(false)}

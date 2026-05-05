@@ -186,14 +186,14 @@ const ChildCard: React.FC<ChildCardProps> = ({
         tabIndex={0}
         onClick={onManageClick}
         onKeyDown={(e) => e.key === 'Enter' && onManageClick()}
-        className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 relative flex items-center gap-4 cursor-pointer transition-opacity active:opacity-90"
+        className="relative flex cursor-pointer items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm transition-opacity active:opacity-90"
       >
-        <div className="w-14 h-14 rounded-xl flex-shrink-0 overflow-hidden">
+        <div className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-xl">
           <Character size="cardSmall" gender={gender} />
         </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-base font-semibold text-gray-800 truncate">{childName}</p>
-          <p className="text-sm text-gray-500 mt-1 truncate">{statusText}</p>
+        <div className="min-w-0 flex-1 pr-10">
+          <p className="truncate text-[15px] font-semibold text-gray-800">{childName}</p>
+          <p className="mt-0.5 truncate text-sm text-gray-500">{statusText}</p>
         </div>
         
         {/* 설정(⋮) 버튼 - MoreVertical */}
@@ -203,7 +203,7 @@ const ChildCard: React.FC<ChildCardProps> = ({
             e.stopPropagation();
             setShowBottomSheet(true);
           }}
-          className="absolute top-3 right-3 p-2 text-gray-400 hover:bg-gray-100 rounded-lg transition-colors"
+          className="absolute right-2.5 top-2.5 rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100"
           aria-label="설정"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
@@ -254,4 +254,3 @@ const ChildCard: React.FC<ChildCardProps> = ({
 };
 
 export default ChildCard;
-

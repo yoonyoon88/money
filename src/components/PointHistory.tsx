@@ -25,6 +25,7 @@ const PointHistoryPage: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [currentPoint, setCurrentPoint] = useState<number>(0); // 현재 남은 포인트
+  const [childGender, setChildGender] = useState<'male' | 'female' | undefined>(undefined);
   const [activeTab, setActiveTab] = useState<'ALL' | 'EARN' | 'USE'>('ALL'); // 탭 상태
 
   // 부모/아이 여부 확인
@@ -60,6 +61,7 @@ const PointHistoryPage: React.FC = () => {
       .then((childUser) => {
         if (childUser) {
           setCurrentPoint(childUser.totalPoint || 0);
+          setChildGender(childUser.gender);
         }
       })
       .catch((error) => {
@@ -281,7 +283,7 @@ const PointHistoryPage: React.FC = () => {
         {filteredHistory.length === 0 ? (
           <div className="text-center py-12">
             <div className="mb-4 flex justify-center">
-              <Character size="large" showSpeechBubble speechText={getEmptyMessage().title} />
+              <Character size="large" gender={childGender} showSpeechBubble speechText={getEmptyMessage().title} />
             </div>
                 <p className="text-gray-500 text-base mb-1">{getEmptyMessage().title}</p>
             {getEmptyMessage().description && (
@@ -327,11 +329,11 @@ const PointHistoryPage: React.FC = () => {
 
                   <div className="flex-1 min-w-0">
                         <h3 className="text-base font-semibold text-gray-800 truncate">
-                      {item.reason}
-                    </h3>
-                    {item.rewardTitle && (
-                          <p className="text-xs text-gray-500 truncate mt-0.5">{item.rewardTitle}</p>
-                    )}
+                          {item.rewardTitle || item.reason}
+                        </h3>
+                        {item.rewardTitle && (
+                          <p className="text-xs text-gray-400 truncate mt-0.5">{item.reason}</p>
+                        )}
                         <p className="text-xs text-gray-400 mt-1">{formatDate(item.createdAt)}</p>
                       </div>
                   </div>

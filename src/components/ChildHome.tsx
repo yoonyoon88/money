@@ -6,8 +6,10 @@ import { subscribeChildMissions, checkAndUpdateExpiredMissions } from '../fireba
 import { subscribeWishlist, addWishItem, deleteWishItem, WishItem } from '../firebase/wishlist';
 import { Mission } from '../types';
 import MissionCard from './MissionCard';
+import Character from './Character';
 import PinInput from './PinInput';
 import AppInfoModal from './AppInfoModal';
+import CompletedMissionModal from './CompletedMissionModal';
 import Toast from './Toast';
 import TimeDebugPanel from './TimeDebugPanel';
 import { useApp } from '../context/AppContext';
@@ -78,7 +80,7 @@ const ChildHome: React.FC = () => {
   
   // 로컬 상태
   const [childName, setChildName] = useState<string | null>(null);
-  const [childGender, setChildGender] = useState<string | undefined>(undefined);
+  const [childGender, setChildGender] = useState<'male' | 'female' | undefined>(undefined);
   const [totalPoint, setTotalPoint] = useState<number>(0);
   const [allMissions, setAllMissions] = useState<Mission[]>([]); // 모든 미션 (필터링 전)
   const [nowMs, setNowMs] = useState<number>(Date.now()); // 현재 시간 (밀리초, 리렌더링 트리거용)
@@ -104,6 +106,7 @@ const ChildHome: React.FC = () => {
   const [showShareMessage, setShowShareMessage] = useState<boolean>(false); // 공유 후 메시지 표시 여부
   const [showAppInfo, setShowAppInfo] = useState<boolean>(false); // 앱 정보 모달 표시 여부
   const [toastMessage, setToastMessage] = useState<string | null>(null); // 토스트 메시지
+  const [completedMission, setCompletedMission] = useState<Mission | null>(null); // 완료 미션 상세 모달
 
   // location.state에서 역할 전환 Toast 메시지 확인 (1회성)
   useEffect(() => {
@@ -170,7 +173,7 @@ const ChildHome: React.FC = () => {
           setDisplayPoint(childUser.totalPoint || 0);
           // Firestore에서 gender 필드 가져오기 (타입에 없을 수 있으므로 any로 접근)
           const childData = childUser as any;
-          setChildGender(childData.gender || undefined);
+          setChildGender(childData.gender === 'male' || childData.gender === 'female' ? childData.gender : undefined);
           // parentId를 familyId로 사용
           setFamilyId(childUser.parentId || null);
           debugLog('[ChildHome] 자녀 정보 조회 완료:', {
@@ -630,9 +633,16 @@ const ChildHome: React.FC = () => {
         </div>
         )}
         
-        <button
+        <div
+          role="button"
+          tabIndex={0}
           onClick={() => {
             if (childId) navigate(`/points/history?childId=${childId}`);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              if (childId) navigate(`/points/history?childId=${childId}`);
+            }
           }}
           className="flex flex-col items-start w-full cursor-pointer hover:opacity-95 transition-opacity active:scale-[0.98] text-left"
         >
@@ -666,7 +676,7 @@ const ChildHome: React.FC = () => {
             </button>
           )}
           <p className="text-sm opacity-90 text-white mt-1">오늘도 미션에 도전해보세요</p>
-        </button>
+        </div>
       </div>
 
       {/* 공유 영역 - Gray 톤 */}
@@ -864,7 +874,10 @@ const ChildHome: React.FC = () => {
       <div className="flex-1 flex flex-col mt-4 pb-6">
         {displayMissions.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-gray-400 text-sm">
-            오늘 할 미션이 없어요 💤
+            <div className="mb-4">
+              <Character size="large" gender={childGender} />
+            </div>
+            <p>오늘 할 미션이 없어요 💤</p>
           </div>
         ) : (
           <div className="space-y-4 mx-5">
@@ -882,11 +895,18 @@ const ChildHome: React.FC = () => {
                     // - SUBMITTED: 클릭 시 알림 표시
                     // - APPROVED/COMPLETED: 클릭 불가 (비활성)
                     const interpretedStatus = getInterpretedStatus(mission);
+
+                    // 완료 미션: 상세 모달 표시
+                    if (mission.status === 'APPROVED' || mission.status === 'COMPLETED') {
+                      setCompletedMission(mission);
+                      return;
+                    }
+
                     if (interpretedStatus === 'SUBMITTED') {
                       alert('이미 결과를 제출했어요. 부모의 확인을 기다려 주세요 🙂');
                       return;
                     }
-                    
+
                     // 수행 가능한 상태: TODO, IN_PROGRESS, 또는 부모가 재도전 요청한 경우
                     const isParentRetry = isParentRequestedRetry(mission);
                     const isChildRetryingNow = isChildRetrying(mission);
@@ -959,6 +979,14 @@ const ChildHome: React.FC = () => {
             </div>
           </div>
         </>
+      )}
+
+      {/* 완료 미션 상세 모달 */}
+      {completedMission && (
+        <CompletedMissionModal
+          mission={completedMission}
+          onClose={() => setCompletedMission(null)}
+        />
       )}
 
       {/* 앱 정보 모달 */}

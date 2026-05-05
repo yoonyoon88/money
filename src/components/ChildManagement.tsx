@@ -13,8 +13,10 @@ import { HEADER_HEIGHT } from '../constants/layout';
 import Toast from './Toast';
 import PinInput from './PinInput';
 import ReviewModal from './ReviewModal';
+import CompletedMissionModal from './CompletedMissionModal';
 import { getInterpretedStatus, isParentRequestedRetry } from '../utils/missionStatusUtils';
 import { canEditMission } from '../utils/permissions';
+import { Mission } from '../types';
 
 // 오늘 날짜 문자열 반환 함수 (컴포넌트 외부로 이동하여 TDZ 문제 해결)
 const getTodayDateString = () => {
@@ -73,6 +75,7 @@ const ChildManagement: React.FC = () => {
   const [showDeleteModal, setShowDeleteModal] = useState<boolean>(false); // 삭제 확인 모달 표시 여부
   const [missionToDelete, setMissionToDelete] = useState<string | null>(null); // 삭제할 미션 ID
   const [showReviewModal, setShowReviewModal] = useState<boolean>(false); // 리뷰 모달 표시 여부
+  const [completedMission, setCompletedMission] = useState<Mission | null>(null); // 완료 미션 상세 모달
   const [showPointUseModal, setShowPointUseModal] = useState<boolean>(false); // 포인트 사용 모달 표시 여부
   const [rewardType, setRewardType] = useState<string>(''); // 보상 종류 (선물, 용돈, 음식, 기타)
   const [rewardCustomText, setRewardCustomText] = useState<string>(''); // 기타 선택 시 입력 텍스트
@@ -430,13 +433,19 @@ const ChildManagement: React.FC = () => {
   }
 
   const handleMissionClick = (missionId: string) => {
-    // 부모는 제출된 미션(SUBMITTED) 클릭 시 승인 화면으로 이동
-    // childId와 missionId를 state로 전달하여 승인 후 해당 자녀 홈으로 돌아올 수 있도록 함
     const mission = missions.find(m => m.id === missionId);
-    // status === 'SUBMITTED'인 경우 반드시 클릭 가능, /approval로 이동 (missionId는 state로 전달)
-    if (mission && mission.status === 'SUBMITTED') {
-      navigate('/approval', { 
-        state: { childId: childId, missionId: missionId } 
+    if (!mission) return;
+
+    // 완료 미션: 상세 모달 표시
+    if (mission.status === 'APPROVED' || mission.status === 'COMPLETED') {
+      setCompletedMission(mission);
+      return;
+    }
+
+    // 제출된 미션: 승인 화면으로 이동
+    if (mission.status === 'SUBMITTED') {
+      navigate('/approval', {
+        state: { childId: childId, missionId: missionId },
       });
     }
   };
@@ -504,18 +513,6 @@ const ChildManagement: React.FC = () => {
       <FixedHeader
         title={childName ? `${childName}의 미션 관리` : '미션 관리'}
         onBack={() => navigate('/parent')}
-        rightActions={
-          <>
-            <button
-              onClick={handleShare}
-              className="text-sm text-gray-600 hover:text-gray-800 transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-gray-100"
-              aria-label="기록 공유"
-            >
-              <span className="text-base">📤</span>
-              <span className="font-medium">기록 공유</span>
-            </button>
-          </>
-        }
       />
 
       {/* 포인트 단독 표시 영역 - 부모홈과 비슷한 상단 여백 */}
@@ -2215,6 +2212,14 @@ const ChildManagement: React.FC = () => {
           setShowReviewModal(false);
         }}
       />
+
+      {/* 완료 미션 상세 모달 */}
+      {completedMission && (
+        <CompletedMissionModal
+          mission={completedMission}
+          onClose={() => setCompletedMission(null)}
+        />
+      )}
     </PageLayout>
   );
 };

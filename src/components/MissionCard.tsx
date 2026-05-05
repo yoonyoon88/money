@@ -395,7 +395,10 @@ const MissionCard: React.FC<MissionCardProps> = ({
             </div>
           </div>
         ) : isCompleted ? (
-          <div className="space-y-2">
+          <div
+            className="space-y-2 cursor-pointer hover:shadow-md transition-shadow"
+            onClick={onClick}
+          >
             <div className="flex items-center justify-between">
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
@@ -408,10 +411,10 @@ const MissionCard: React.FC<MissionCardProps> = ({
                 <div className="flex items-center justify-between">
                   {mission.approvedAt && (
                     <p className="text-xs text-gray-500">
-                      {new Date(mission.approvedAt).toLocaleDateString('ko-KR', { 
-                        year: 'numeric', 
-                        month: 'long', 
-                        day: 'numeric' 
+                      {new Date(mission.approvedAt).toLocaleDateString('ko-KR', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
                       })} 완료
                     </p>
                   )}
@@ -492,9 +495,10 @@ const MissionCard: React.FC<MissionCardProps> = ({
   // - TODO: 클릭 가능
   // - IN_PROGRESS: 클릭 가능 (수행 화면으로 이동)
   // - RESUBMITTED: 클릭 가능 (미션 다시 수행 화면으로 이동)
+  // - APPROVED/COMPLETED: 클릭 가능 (상세 모달)
   // - SUBMITTED: 클릭 불가
-  // - APPROVED/COMPLETED/EXPIRED: 클릭 불가
-  const isClickable = !isExpired && !isCompleted && !isPending && (isInProgress || isResubmitted);
+  // - EXPIRED: 클릭 불가
+  const isClickable = !isExpired && !isPending && (isInProgress || isResubmitted || (isCompleted && !!onClick));
   
   return (
     <div
@@ -507,7 +511,9 @@ const MissionCard: React.FC<MissionCardProps> = ({
             ? 'cursor-pointer hover:shadow-lg active:scale-[0.98]'
             : isExpired
               ? 'opacity-80 cursor-not-allowed'
-              : 'opacity-60 cursor-not-allowed'
+              : isCompleted
+                ? ''
+                : 'opacity-60 cursor-not-allowed'
         }
       `}
     >

@@ -1,4 +1,4 @@
-import { doc, getDoc, onSnapshot, updateDoc, addDoc, collection, serverTimestamp, DocumentData, Timestamp, deleteDoc, getDocs, query, where, writeBatch, setDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, updateDoc, addDoc, collection, serverTimestamp, DocumentData, Timestamp, deleteDoc, getDocs, query, where, writeBatch, setDoc, runTransaction } from 'firebase/firestore';
 import { db } from './config';
 import { safeUserUpdate } from '../utils/firestoreSafeUpdate';
 import { User, type Subscription } from '../types';
@@ -208,17 +208,17 @@ export const getVisibleChildrenCount = async (parentId: string): Promise<number>
  */
 export const getActiveChildren = async (
   parentId: string
-): Promise<Array<{ id: string; name: string }>> => {
+): Promise<Array<{ id: string; name: string; gender?: 'male' | 'female' }>> => {
   if (!db) return [];
   try {
     const parentDoc = await getDoc(doc(db, 'users', parentId));
     const childrenIds = parentDoc.data()?.childrenIds;
     if (!Array.isArray(childrenIds) || childrenIds.length === 0) return [];
-    const list: Array<{ id: string; name: string }> = [];
+    const list: Array<{ id: string; name: string; gender?: 'male' | 'female' }> = [];
     for (const childId of childrenIds) {
       const child = await getUser(childId);
       if (child && child.isDeleted !== true) {
-        list.push({ id: childId, name: child.name ?? '자녀' });
+        list.push({ id: childId, name: child.name ?? '자녀', gender: child.gender });
       }
     }
     return list;
@@ -463,33 +463,38 @@ export const resetChildPoint = async (childId: string): Promise<void> => {
  * @param amount - 차감할 포인트 양 (양수)
  * @returns 성공 여부
  */
-export const deductChildPoint = async (childId: string, amount: number): Promise<void> => {
+export const deductChildPoint = async (childId: string, amount: number): Promise<number> => {
   if (!db) {
     throw new Error('Firestore가 초기화되지 않았습니다.');
   }
 
-  if (amount <= 0) {
+  if (!Number.isFinite(amount) || amount <= 0) {
     throw new Error('차감할 포인트는 0보다 커야 합니다.');
   }
 
-  try {
+  const userRef = doc(db, 'users', childId);
+
+  return runTransaction(db, async (transaction) => {
     // 현재 포인트 조회
-    const userDoc = await getDoc(doc(db, 'users', childId));
+    const userDoc = await transaction.get(userRef);
     if (!userDoc.exists()) {
       throw new Error('자녀 정보를 찾을 수 없습니다.');
     }
 
-    const currentPoint = userDoc.data().totalPoint || 0;
-    const newPoint = Math.max(0, currentPoint - amount); // 음수 방지
+    const currentPointRaw = userDoc.data().totalPoint;
+    const currentPoint = typeof currentPointRaw === 'number' ? currentPointRaw : 0;
+    if (currentPoint < amount) {
+      throw new Error('포인트가 부족합니다.');
+    }
+    const newTotalPoint = currentPoint - amount;
 
-    const userRef = doc(db, 'users', childId);
-    await updateDoc(userRef, {
-      totalPoint: newPoint,
+    transaction.update(userRef, {
+      totalPoint: newTotalPoint,
       updatedAt: serverTimestamp(),
     });
-  } catch (error) {
-    throw error;
-  }
+
+    return newTotalPoint;
+  });
 };
 
 /**
@@ -612,7 +617,11 @@ export const deleteChild = async (
     const pointUsagesSnapshot = await getDocs(pointUsagesQuery);
     pointUsagesSnapshot.docs.forEach((usageDoc) => {
       const usageRef = doc(db, 'pointUsages', usageDoc.id);
-      batch.delete(usageRef);
+      batch.update(usageRef, {
+        isDeleted: true,
+        deletedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
     });
 
     // 3. 자녀의 소원 목록 삭제 (wishlist 컬렉션)
@@ -623,7 +632,11 @@ export const deleteChild = async (
     const wishlistSnapshot = await getDocs(wishlistQuery);
     wishlistSnapshot.docs.forEach((wishDoc) => {
       const wishRef = doc(db, 'wishlist', wishDoc.id);
-      batch.delete(wishRef);
+      batch.update(wishRef, {
+        isDeleted: true,
+        deletedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
     });
 
     // 4. 자녀 사용자 문서 Soft Delete (문서 삭제하지 않음)

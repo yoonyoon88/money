@@ -377,19 +377,43 @@ export const subscribeSubmittedMissions = (
     return () => {};
   }
 
+  // SUBMITTED(신규)와 PENDING_REVIEW(하위 호환) 두 상태 모두 구독
+  // Firestore는 OR 쿼리를 지원하지 않으므로 두 쿼리를 병렬 실행 후 병합
   const missionsRef = collection(db, 'missions');
-  const q = query(
-    missionsRef,
-    where('parentId', '==', parentId),
-    where('childId', 'in', childrenIds),
-    where('status', '==', 'PENDING_REVIEW'),
-    where('isDeleted', '==', false)
-  );
 
-  return onSnapshot(q, (snapshot: QuerySnapshot<DocumentData>) => {
-    const missions = snapshot.docs.map((doc) => docToMission(doc.data(), doc.id));
-    callback(missions);
+  const makeQuery = (status: string) =>
+    query(
+      missionsRef,
+      where('parentId', '==', parentId),
+      where('childId', 'in', childrenIds),
+      where('status', '==', status),
+      where('isDeleted', '==', false)
+    );
+
+  const submittedMap = new Map<string, Mission>();
+  const pendingMap = new Map<string, Mission>();
+
+  const notify = () => {
+    const merged = new Map([...pendingMap, ...submittedMap]);
+    callback(Array.from(merged.values()));
+  };
+
+  const unsubSubmitted = onSnapshot(makeQuery('SUBMITTED'), (snapshot: QuerySnapshot<DocumentData>) => {
+    submittedMap.clear();
+    snapshot.docs.forEach((d) => submittedMap.set(d.id, docToMission(d.data(), d.id)));
+    notify();
   });
+
+  const unsubPending = onSnapshot(makeQuery('PENDING_REVIEW'), (snapshot: QuerySnapshot<DocumentData>) => {
+    pendingMap.clear();
+    snapshot.docs.forEach((d) => pendingMap.set(d.id, docToMission(d.data(), d.id)));
+    notify();
+  });
+
+  return () => {
+    unsubSubmitted();
+    unsubPending();
+  };
 };
 
 /**
@@ -572,7 +596,7 @@ export const approveMission = async (
         data.rewardPoint,
         '미션 완료',
         'parent',
-        undefined, // rewardTitle: null (적립 시)
+        data.title || '미션 완료', // rewardTitle: 실제 미션 이름
         data.parentId, // parentId
         missionId, // missionId
         newTotalPoint // balanceAfter
@@ -1122,16 +1146,8 @@ export const approveRetry = async (
   const newDeadlineTimestamp = Timestamp.fromDate(newDueDateObj);
   const nowTimestamp = Timestamp.fromDate(now);
 
-  // 1. 기존 미션 기록 업데이트 (기록용으로 유지)
-  await updateDoc(missionRef, {
-    status: 'RETRY_APPROVED' as MissionStatus,
-    retryRequestedBy: null,
-    retryRequestStatus: 'approved',
-    retryApprovedAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
-
-  // 2. 새 미션 생성 (오늘 날짜 기준)
+  // 기존 미션 상태 업데이트 + 새 미션 생성을 트랜잭션으로 묶어 원자적 처리
+  // → 둘 중 하나라도 실패하면 전체 롤백
   const newMissionData: any = {
     title: missionData.title,
     description: missionData.description || '',
@@ -1148,7 +1164,6 @@ export const approveRetry = async (
     dueAt: newDeadlineTimestamp,
     dueDate: newDeadlineTimestamp,
     updatedAt: serverTimestamp(),
-    // 완료/승인 관련 데이터는 제거 (null로 설정)
     completedAt: null,
     approvedAt: null,
     resultImageUrl: null,
@@ -1162,6 +1177,7 @@ export const approveRetry = async (
     retryRejectedAt: null,
     expiredAt: null,
     resultStatus: null,
+    originalMissionId: missionId,
   };
 
   // 반복 미션 관련 필드 (있는 경우만 복사)
@@ -1173,7 +1189,21 @@ export const approveRetry = async (
   }
 
   const missionsRef = collection(db, 'missions');
-  await addDoc(missionsRef, newMissionData);
+  const newMissionRef = doc(missionsRef); // 새 문서 ref를 트랜잭션 밖에서 미리 생성
+
+  await runTransaction(db, async (transaction) => {
+    // 1. 기존 미션 상태를 RETRY_APPROVED로 변경
+    transaction.update(missionRef, {
+      status: 'RETRY_APPROVED' as MissionStatus,
+      retryRequestedBy: null,
+      retryRequestStatus: 'approved',
+      retryApprovedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+
+    // 2. 새 미션 생성 (트랜잭션 내 set 사용)
+    transaction.set(newMissionRef, newMissionData);
+  });
 };
 
 /**

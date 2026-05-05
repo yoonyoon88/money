@@ -10,6 +10,8 @@ import { storage, db } from '../firebase/config';
 import { Mission } from '../types';
 import PageLayout from './PageLayout';
 import { NORMAL_HEADER_HEIGHT } from '../constants/layout';
+import { pickPhoto, compressDataUrl } from '../services/cameraService';
+import PhotoViewer from './PhotoViewer';
 
 // 아이 기준 수행 가능한 미션 상태 목록
 // - TODO: 아직 시작하지 않은 미션
@@ -42,9 +44,9 @@ const ChildMissionDetail: React.FC = () => {
   const [missionNotFound, setMissionNotFound] = useState(false); // 미션 조회 실패
   const [unauthorized, setUnauthorized] = useState(false); // 권한 실패 (childId 불일치)
   const [memo, setMemo] = useState('');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [selectedDataUrl, setSelectedDataUrl] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [showPhotoViewer, setShowPhotoViewer] = useState(false);
 
   // 현재 접근한 childId (location.state 우선, 없으면 selectedChildId)
   const currentChildId = (location.state as { childId?: string })?.childId || selectedChildId;
@@ -102,12 +104,6 @@ const ChildMissionDetail: React.FC = () => {
     };
   }, [id, currentChildId, selectedChildId, location.state]);
 
-  // 미리보기 URL 메모리 해제 (언마운트 시)
-  useEffect(() => {
-    return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-    };
-  }, [previewUrl]);
 
   // loading 중이면 로딩 UI 표시
   if (loading) {
@@ -261,39 +257,11 @@ const ChildMissionDetail: React.FC = () => {
   };
 
   /** 이미지 압축: 최대 1200px, quality 0.85 */
-  const compressImage = (file: File): Promise<Blob> => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        resolve(file);
-        return;
-      }
-      img.onload = () => {
-        const maxSize = 1200;
-        let { width, height } = img;
-        if (width > maxSize || height > maxSize) {
-          if (width > height) {
-            height = (height * maxSize) / width;
-            width = maxSize;
-          } else {
-            width = (width * maxSize) / height;
-            height = maxSize;
-          }
-        }
-        canvas.width = width;
-        canvas.height = height;
-        ctx.drawImage(img, 0, 0, width, height);
-        canvas.toBlob(
-          (blob) => (blob ? resolve(blob) : resolve(file)),
-          'image/jpeg',
-          0.85
-        );
-      };
-      img.onerror = () => resolve(file);
-      img.src = URL.createObjectURL(file);
-    });
+  const handlePickPhoto = async () => {
+    const dataUrl = await pickPhoto();
+    if (dataUrl) {
+      setSelectedDataUrl(dataUrl);
+    }
   };
 
   const handleSubmit = async () => {
@@ -308,8 +276,8 @@ const ChildMissionDetail: React.FC = () => {
 
     setSubmitting(true);
     try {
-      if (selectedFile && user) {
-        const blob = await compressImage(selectedFile);
+      if (selectedDataUrl && user) {
+        const blob = await compressDataUrl(selectedDataUrl);
         const storageRef = ref(
           storage,
           `missions/${user.id}/${mission.id}/photo.jpg`
@@ -321,9 +289,7 @@ const ChildMissionDetail: React.FC = () => {
         });
       }
       await submitMission(mission.id, memo.trim(), currentChildId);
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setPreviewUrl(null);
-      setSelectedFile(null);
+      setSelectedDataUrl(null);
       alert('제출 완료! 부모님이 확인하시면 포인트가 지급돼요 😊');
       navigate(`/child/${mission.childId}`, { replace: true });
     } catch (error) {
@@ -392,49 +358,31 @@ const ChildMissionDetail: React.FC = () => {
         {hasPremiumAccess(getSubscriptionPlan(user)) && (
         <div className="mt-4 p-3 bg-white rounded-xl border border-gray-100">
           <p className="text-sm text-gray-500 mb-2">📷 사진 첨부 (선택)</p>
-          <input
-            type="file"
-            accept="image/*"
-            id="photoInput"
-            className="hidden"
-            onChange={(e) => {
-              if (e.target.files?.[0]) {
-                const file = e.target.files[0];
-                if (previewUrl) URL.revokeObjectURL(previewUrl);
-                setSelectedFile(file);
-                setPreviewUrl(URL.createObjectURL(file));
-              }
-            }}
-          />
-          {previewUrl ? (
-            <div className="relative border-2 border-dashed border-gray-200 rounded-lg overflow-hidden">
+          {selectedDataUrl ? (
+            <div className="relative rounded-lg overflow-hidden">
               <img
-                src={previewUrl}
+                src={selectedDataUrl}
                 alt="미리보기"
-                className="w-full object-cover max-h-48"
+                className="w-full object-cover max-h-48 cursor-pointer"
+                onClick={() => setShowPhotoViewer(true)}
               />
               <button
                 type="button"
-                onClick={() => {
-                  if (previewUrl) URL.revokeObjectURL(previewUrl);
-                  setSelectedFile(null);
-                  setPreviewUrl(null);
-                }}
+                onClick={() => setSelectedDataUrl(null)}
                 className="absolute top-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded"
               >
                 삭제
               </button>
             </div>
           ) : (
-            <label
-              htmlFor="photoInput"
-              className="block border-2 border-dashed border-gray-200 rounded-lg p-4 text-center cursor-pointer hover:border-orange-300 hover:bg-orange-50/30 transition-colors"
+            <button
+              type="button"
+              onClick={handlePickPhoto}
+              className="w-full border-2 border-dashed border-gray-200 rounded-lg p-4 text-center hover:border-orange-300 hover:bg-orange-50/30 transition-colors"
             >
-              <p className="text-sm text-gray-400">
-                사진을 선택하면 여기에 미리보기가 표시됩니다
-              </p>
-              <span className="inline-block mt-1 text-sm text-orange-500 font-medium">사진 선택하기</span>
-            </label>
+              <p className="text-sm text-gray-400">카메라로 촬영하거나 갤러리에서 선택해요</p>
+              <span className="inline-block mt-1 text-sm text-orange-500 font-medium">사진 첨부하기</span>
+            </button>
           )}
         </div>
         )}
@@ -451,9 +399,13 @@ const ChildMissionDetail: React.FC = () => {
           {submitting ? '처리 중...' : '완료했어요! ✨'}
         </button>
       </div>
+
+      {/* 사진 전체화면 뷰어 */}
+      {showPhotoViewer && selectedDataUrl && (
+        <PhotoViewer url={selectedDataUrl} onClose={() => setShowPhotoViewer(false)} />
+      )}
     </PageLayout>
   );
 };
 
 export default ChildMissionDetail;
-
